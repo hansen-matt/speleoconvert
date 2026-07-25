@@ -2,8 +2,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 SRC = Path(__file__).parent.parent / "src" / "speleoconvert"
 
 
@@ -15,7 +13,6 @@ def test_only_ariane_writer_imports_openspeleo():
     assert offenders == []
 
 
-@pytest.mark.xfail(reason="compass package lands in Task 3")
 def test_compass_package_is_stdlib_only():
     code = (
         "import sys; mods_before=set(sys.modules); "
