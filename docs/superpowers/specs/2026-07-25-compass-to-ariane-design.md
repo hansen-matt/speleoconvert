@@ -92,7 +92,7 @@ LRUD, `excluded`, per-shot `latitude`/`longitude`).
 | format string | `Section.compass_format` | TML has this field natively |
 | team | `Section.surveyors` / `explorers` | |
 | shot from/to/length/bearing/inc | `Shot` fields | 1:1 |
-| LRUD | `Shot.left/right/up/down` | TML has no "missing" concept: absent (`-9.9` sentinel) → `0.0` in TML, each occurrence listed in the report. Not a strict-mode error (sentinels appear in nearly every real survey; the report preserves the distinction). |
+| LRUD | `Shot.left/right/up/down` | Absent (`-9.9` sentinel) → `None`, which serializes as an empty TML element (`<Left/>`) and round-trips as absent (verified against openspeleo-lib 0.0.18). Occurrences counted in the report; never a strict-mode error. |
 | flag `X` | `Shot.excluded` | native |
 | flags `L`, `P`, `C` | comment + report (lenient) / error (strict) | no native slot |
 | backsights | comment + report (lenient) / error (strict) | Ariane stores one az/inc per shot |
