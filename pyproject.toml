@@ -1,0 +1,19 @@
+[project]
+name = "speleoconvert"
+version = "0.1.0"
+description = "Lossless Fountainware Compass to Ariane's Line survey converter"
+requires-python = ">=3.11"
+dependencies = ["openspeleo-lib>=0.0.18", "pyproj>=3.6"]
+
+[project.scripts]
+speleoconvert = "speleoconvert.cli:entrypoint"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
