@@ -86,13 +86,22 @@ def parse_mak(path: str | Path) -> CompassProject:
             vals = [v.strip() for v in body.split(",")]
             if len(vals) != 5:
                 raise ParseError(str(path), line_no, f"bad base location: {stmt!r}")
-            base = (float(vals[0]), float(vals[1]), float(vals[2]), int(vals[3]), float(vals[4]))
+            try:
+                base = (float(vals[0]), float(vals[1]), float(vals[2]),
+                        int(vals[3]), float(vals[4]))
+            except ValueError as e:
+                raise ParseError(str(path), line_no,
+                                 f"bad base location value: {e}") from e
         elif head == "&":
             cur_datum = body.strip()
             if file_datum is None:
                 file_datum = cur_datum
         elif head == "$":
-            cur_zone = int(body.strip())
+            try:
+                cur_zone = int(body.strip())
+            except ValueError as e:
+                raise ParseError(str(path), line_no,
+                                 f"bad UTM zone {body.strip()!r}") from e
         elif head == "!":
             if flags_raw is None:
                 flags_raw = body.strip()

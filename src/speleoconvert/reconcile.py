@@ -70,6 +70,7 @@ def _parse_tml(tml_path: str | Path) -> list[dict]:
             "depth": f("Depth"), "depth_in": f("DepthIn"),
             "left": f("Left"), "right": f("Right"),
             "up": f("Up"), "down": f("Down"),
+            "latitude": f("Latitude"), "longitude": f("Longitude"),
         })
     return shots
 
@@ -78,6 +79,12 @@ def _close(a: float | None, b: float | None, tol: float = _ANGLE_TOL) -> bool:
     if a is None or b is None:
         return a is None and b is None
     return abs(a - b) <= tol
+
+
+def _fold(a: float, b: float) -> float:
+    """Circular angular distance in [0, 180]."""
+    d = abs((a - b) % 360.0)
+    return min(d, 360.0 - d)
 
 
 def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
@@ -140,6 +147,27 @@ def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
             problems.append(f"{loc}: azimuth {s['azimuth']} does not match "
                             f"Compass {c.bearing_deg} (azm2={c.azm2_deg}, "
                             f"reversed={reversed_})")
+
+        # Independent invariants, computed from RAW readings without the
+        # shared averaging helpers: an average cannot land farther from the
+        # foresight than the backsight is (under either convention), and it
+        # cannot exceed the source magnitudes for inclination. These catch
+        # transform-layer bugs that identical recomputation would mirror.
+        if c.bearing_deg is not None and c.azm2_deg is not None \
+                and s["azimuth"] is not None:
+            fore = (c.bearing_deg + 180.0) % 360.0 if reversed_ else c.bearing_deg
+            spread = min(_fold(c.bearing_deg, c.azm2_deg),
+                         _fold(c.bearing_deg, c.azm2_deg + 180.0))
+            if _fold(fore, s["azimuth"]) > spread + 0.01:
+                problems.append(
+                    f"{loc}: azimuth {s['azimuth']} lies outside the fore/back "
+                    f"envelope ({c.bearing_deg} / {c.azm2_deg})")
+        if s["inclination"] is not None:
+            max_src = max(abs(c.inclination_deg or 0.0), abs(c.inc2_deg or 0.0))
+            if abs(s["inclination"]) > max_src + 0.01:
+                problems.append(
+                    f"{loc}: inclination {s['inclination']} exceeds source "
+                    f"magnitudes (fore={c.inclination_deg}, back={c.inc2_deg})")
         exp_inc = e.inclination
         if exp_inc is not None and reversed_:
             exp_inc = -exp_inc
@@ -177,6 +205,33 @@ def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
                     f"len {e.shot.length_ft} (source line {e.shot.line_no})"
                 )
 
+    # ---- depth-chain continuity (independent of the emitter's bookkeeping) --
+    shot_by_id = {s["id"]: s for s in tml_shots}
+    for s in real:
+        parent = shot_by_id.get(s["from_id"])
+        if parent is None or s["depth_in"] is None or parent["depth"] is None:
+            continue
+        if abs(s["depth_in"] - parent["depth"]) > 0.51:
+            problems.append(
+                f"shot ID {s['id']}: DepthIn {s['depth_in']} disagrees with "
+                f"parent shot depth {parent['depth']}")
+
+    # ---- fixed stations: every anchor must survive somewhere ---------------
+    fixed_names = {fs.name for link in project.links for fs in link.fixed_stations}
+    for name in fixed_names & compass_stations:
+        carried = any(
+            s["name"] == name and (
+                # anchor coordinates on the station's START shot...
+                (s["type"] == "START" and s["latitude"] is not None) or
+                # ...or preserved in the establishing shot's comment
+                f"Compass fixed station {name}:" in s["comment"]
+            )
+            for s in tml_shots
+        )
+        if not carried:
+            problems.append(f"fixed station {name!r}: coordinates absent from "
+                            "TML (no anchor, no comment)")
+
     # ---- section-level metadata -------------------------------------------
     by_section: dict[str, list[dict]] = defaultdict(list)
     for s in tml_shots:
@@ -184,14 +239,20 @@ def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
     for survey in surveys:
         sec_shots = by_section.get(survey.name, [])
         if not sec_shots:
-            problems.append(f"section {survey.name!r} has no shots in TML")
-            continue
+            if survey.shots:
+                problems.append(f"section {survey.name!r} has no shots in TML")
+            continue  # shot-less source survey (e.g. placeholder-only): fine
         iso = _iso(survey.date_raw)
         if iso and iso not in {s["date"] for s in sec_shots}:
             problems.append(f"section {survey.name!r}: date {iso} lost")
-        explorer_text = " ".join(s["explorer"] for s in sec_shots)
+        names_seen = {
+            n.strip()
+            for s in sec_shots
+            for n in s["explorer"].split(",")
+            if n.strip()
+        }
         for member in survey.team:
-            if member not in explorer_text:
+            if member not in names_seen:
                 problems.append(f"section {survey.name!r}: team member "
                                 f"{member!r} lost")
 

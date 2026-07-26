@@ -84,10 +84,10 @@ LRUD absent-vs-zero, depth deltas vs `length×sin(inc)`, comments verbatim,
 flags, dates, team, and totals (count, summed length, station set). This runs
 inside the CLI on **every real conversion**; discrepancies fail the run.
 
-The auditor's detection power is itself proven: nine corruption classes are
+The auditor's detection power is itself proven: ten corruption classes are
 deliberately injected into written files (altered length/azimuth/LRUD/depth,
-dropped shot, deleted comment, flipped exclusion, erased team) and each must
-be caught. An auditor that passes everything is worthless; this one is tested
+dropped shot, deleted comment, flipped exclusion, erased team, broken
+depth-chain continuity, stripped GPS anchor) and each must be caught. An auditor that passes everything is worthless; this one is tested
 to fail.
 
 ## Layer 7 — Randomized end-to-end (fuzz)
