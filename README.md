@@ -1,97 +1,153 @@
 # speleoconvert
 
-Lossless converter from [Fountainware Compass](https://www.fountainware.com/compass/)
-cave survey projects to [Ariane's Line](https://www.arianesline.com/) `.tml`.
+Convert [Fountainware Compass](https://www.fountainware.com/compass/) cave
+survey projects to [Ariane's Line](https://www.arianesline.com/) `.tml` —
+**losslessly, and with the losslessness verified on every run**.
 
-Compass has been the standard cave survey program for decades; its lone
-maintainer is in his 80s and the community is migrating. The survey data being
-migrated represents thousands of hours of (often underwater) exploration, so
-this tool's first design goal is that **nothing is lost or corrupted** — and
-that this is *verified*, not assumed, on every single conversion.
+Compass has been the standard cave survey program for decades. Its sole
+maintainer is in his 80s, and cave survey teams are migrating their archives
+to Ariane's Line. Those archives represent thousands of hours of exploration,
+much of it underwater cave diving that cannot simply be re-surveyed. This
+tool exists so that migration loses nothing — and proves it, shot by shot,
+every time it runs.
 
-## Quick start
+**Status:** production-ready CLI. Validated against ~50 real Compass projects
+(~18,000 survey shots, single-cave files up to multi-file systems with loops,
+fixed GPS stations, and 40 years of format quirks), with converted output
+verified in a current Ariane's Line installation.
 
-    uv tool install speleoconvert          # or from a checkout: uv run speleoconvert ...
-    speleoconvert convert "My Cave.mak"            # -> "My Cave.tml" + audit report
-    speleoconvert convert "My Cave.mak" --strict   # refuse instead of embedding leftovers
+## Requirements
 
-Input is a whole Compass project: the `.mak` project file plus the `.dat`
-survey files it links (resolved case-insensitively; DOS-era cp437 encoding
-handled). Output is one Ariane `.tml` plus `<out>.tml.report.json`, a
-field-level audit of every conversion decision.
+- Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/) (or plain pip)
+- A Compass project: one `.mak` file plus the `.dat` files it references
 
-Exit codes: `0` success (including the built-in reconciliation audit),
-`1` conversion/verification failure, `2` usage error — safe for batch
-migration scripts.
+## Install
 
-## What "lossless" means here
+    uv tool install git+https://github.com/hansen-matt/speleoconvert
 
-Every Compass field either maps to a native Ariane field, or is embedded in a
-comment that travels with the data, or (for display-only metadata) is recorded
-in the report. Nothing is silently dropped. `--strict` turns any non-native
-mapping into a hard error instead.
+or from a checkout:
 
-| Compass | Ariane TML |
+    git clone https://github.com/hansen-matt/speleoconvert
+    cd speleoconvert
+    uv run speleoconvert --version
+
+## Usage
+
+    speleoconvert convert "My Cave.mak"
+
+writes `My Cave.tml` (open it in Ariane) and `My Cave.tml.report.json`, a
+field-level audit of every conversion decision, and prints a summary:
+
+    speleoconvert report: My Cave.mak -> My Cave.tml
+      backsight-averaged: 213
+      shot-flags: 12
+      ...
+    reconciliation: OK (2299 shots verified against the source)
+    wrote My Cave.tml
+
+Options: `-o OUT.tml` (output path), `--report PATH`, `-q` (quiet),
+`--strict` (refuse to convert if anything cannot map to a native Ariane
+field, instead of embedding it in a comment).
+
+Batch-convert an archive:
+
+    find /archives -iname '*.mak' -exec speleoconvert convert {} \;
+
+Exit codes: `0` success **including the built-in data audit**, `1` any
+parse/conversion/verification failure, `2` usage error — a failed project
+can't slip through a batch run silently. Files that are genuinely broken
+(e.g. a `.mak` referencing a `.dat` that no longer exists, or corrupted
+rows) fail with a `file:line` message telling you what to repair; the
+converter never guesses.
+
+## Opening the result in Ariane
+
+- **Geometry and geo-referencing come across automatically**: shots stay in
+  feet with magnetic azimuths; `.mak` fixed stations (NAD27/NAD83/WGS84 UTM)
+  become WGS84 anchors, verified to within 0–2 ft of Compass's own KML
+  exports.
+- **Run loop compensation** (LOOPS panel). Compass silently distributed loop
+  misclosure at compile time; Ariane shows raw loops until you compensate.
+- **Dashed lines are excluded shots** — the faithful translation of Compass's
+  `X` flag (Compass hid them entirely; Ariane draws them dashed and skips
+  them in processing).
+- **Declination:** the TML format has no declination field. Ariane computes
+  it from each survey's date and the cave's location. Surveys recorded with
+  `DECLINATION: 0.00` and a real date are flagged in the report
+  (`declination-zero`), because Ariane will apply a correction Compass never
+  did.
+
+## What "lossless" means
+
+Every Compass field either maps to a native Ariane field, travels in a
+comment on the relevant shot, or (display-only metadata) is recorded in the
+JSON report. Nothing is silently dropped. `--strict` turns any non-native
+mapping into a hard error.
+
+| Compass | becomes |
 |---|---|
-| project (`.mak`) | one `Survey` / one `.tml` (unit = feet, as Compass stores) |
-| survey | `Section` (name, ISO date, team) |
-| shot | `Shot`: length, azimuth, inclination, LRUD, comment; depth computed from the traverse (half-foot display rounding, full precision propagated) |
-| fixed stations (UTM + NAD27/NAD83/WGS84) | WGS84 lat/lon on the anchor shot (pyproj datum shift; verified to 0–2 ft against Compass's own KML exports) |
-| redundant backsights | averaged into azimuth/inclination exactly as Compass compiles them; raw-vs-corrected convention auto-detected per survey; raw readings preserved in the shot comment |
-| loops | measured loop shot stays REAL (solid in Ariane) with `closure_to_id`; Ariane's loop compensation closes them |
-| flag `X` (exclude) | `excluded` (Ariane draws dashed, skips in processing) |
-| flags `L`/`P`/`C`, discovery dates, survey comments | shot comment + report (or `--strict` error) |
-| missing LRUD (`-9.9` sentinel) | stays absent (`<Left/>`), never fake zeros |
-| declination / instrument corrections / format string | report (TML has no fields for them; Ariane derives declination from section date + location) |
+| project (`.mak` + `.dat`s) | one `.tml`; each Compass survey is an Ariane Section |
+| shot: length / bearing / inclination / LRUD / comment | native Shot fields; depth computed from the traverse (displayed to the nearest half-foot; full precision propagated internally) |
+| fixed stations (UTM + datum) | WGS84 lat/lon anchors |
+| redundant backsights | averaged into azimuth/inclination exactly as Compass compiles them (raw-vs-corrected convention auto-detected per survey); raw readings preserved in the shot comment |
+| loops | the measured loop shot stays a normal solid shot, machine-tagged with its closure target |
+| flag `X` (exclude from processing) | Ariane `Excluded` |
+| flags `L`/`P`/`C`, discovery dates, survey comments | shot comment + report |
+| missing LRUD (`-9.9` sentinel) | stays absent — never fake zeros |
+| declination, instrument corrections, format string | report (no TML fields exist for them) |
+| survey team | Ariane Explorer field (plain names) |
 
-Chains surveyed *toward* their tie-in are reversed (azimuth +180°,
-inclination negated — geometry-preserving, required by Ariane's rooted-tree
-model) and noted in the report. Shots are emitted in connectivity order, not
-file order, so surveys that reference stations defined in later files anchor
-correctly.
+Surveys recorded *toward* their tie-in point are reversed (azimuth +180°,
+inclination negated — geometry-preserving; Ariane's data model is a rooted
+tree). Shots are emitted in connectivity order, so surveys that start at
+stations defined in later files anchor correctly.
 
-## Built-in verification (every run)
+## How you know nothing was lost
 
-After writing the `.tml`, the CLI **independently re-reads it** (stdlib XML,
-no shared code with the writer) and reconciles it shot-by-shot against the
-parsed Compass source: station names, exact lengths, azimuths/inclinations,
-LRUD, depth deltas, comments, flags, dates, team members, and totals. Any
-discrepancy fails the run — a corrupted output cannot exit 0.
+Every run self-audits: after writing the `.tml`, the CLI re-reads it with an
+independent parser (Python stdlib XML — no code shared with the writer) and
+reconciles it against the Compass source shot by shot: station names, exact
+lengths, azimuths, inclinations, LRUD, depth deltas, comments, flags, dates,
+team members, and totals. Any discrepancy fails the run.
 
-See [docs/TESTING.md](docs/TESTING.md) for the full verification stack
-(format conformance against Ariane-authored reference files, corruption-
-detection tests, randomized fuzzing, real-corpus geometry checks against
-Compass's own `.plt` output).
+The test suite behind that guarantee — including deliberate file-corruption
+tests that prove the auditor catches tampering, randomized fuzz projects, and
+geometry verification against Compass's own `.plt` output — is described in
+[docs/TESTING.md](docs/TESTING.md).
 
-## Ariane compatibility notes
+## Known limitations
 
-Ariane publishes no file spec; the output format is matched against files
-authored by Ariane itself (see `tests/fixtures/ariane_canonical.json` and the
-conformance suite). Where the `openspeleo-lib` writer deviates from
-Ariane-native output (team-field encoding, `XMLExplorer`/`XMLSurveyor` tags,
-CSS-style colors), the writer post-processes the XML to match; upstream fixes
-proposed in [OpenSpeleo/pytool_openspeleo_lib#65](https://github.com/OpenSpeleo/pytool_openspeleo_lib/pull/65).
+- Ariane's TML format cannot store per-survey declination or instrument
+  corrections; they are preserved in the report only (see above for how
+  Ariane handles declination itself).
+- Redundant-backsight handling is fully tested synthetically, but no file in
+  the validation corpus contains real backsight columns — review the report
+  of the first real backsight archive you convert.
+- Ariane's data table displays some stored fields verbatim (a quirk that
+  applies equally to files Ariane writes itself).
+- The Compass `.plt`/`.clp` files are not converted: they are compiled
+  output, which Ariane regenerates from the raw data.
 
 ## Development
 
-    uv run pytest                      # unit + integration tests
+    uv run pytest                 # synthetic suites (no private data needed)
     SPELEOCONVERT_CORPUS=/path/to/projects uv run pytest   # + real-corpus suites
-    SPELEOCONVERT_CORPUS=... uv run python tools/corpus_report.py  # strict-readiness survey
     uv run ruff check .
 
-Layout: `src/speleoconvert/compass/` (pure-stdlib Compass parsers + model),
-`mapping.py` (Compass → Ariane dict; the semantics live here),
-`ariane_writer.py` (the **only** module that imports `openspeleo-lib`;
-post-processes to Ariane-native XML), `geodesy.py` (pyproj), `reconcile.py`
-(the self-audit), `conformance.py` (de-facto format validator), `report.py`,
-`cli.py`. The firewall (writer-library imports confined to one file) is
-enforced by a test, keeping a future browser/Pyodide build cheap.
+Layout: `src/speleoconvert/compass/` — pure-stdlib Compass parsers;
+`mapping.py` — Compass→Ariane semantics; `ariane_writer.py` — the only module
+that touches the TML-writing library ([openspeleo-lib](https://github.com/OpenSpeleo/pytool_openspeleo_lib),
+from the OpenSpeleo/SpeleoDB project), plus post-processing that matches
+Ariane-native output byte conventions; `geodesy.py` — datum shifts (pyproj);
+`reconcile.py` — the per-run audit; `conformance.py` — validates output
+against the de-facto Ariane format (derived from Ariane-authored files, since
+no official spec exists). Upstream fixes for the writer library are proposed
+in [OpenSpeleo/pytool_openspeleo_lib#65](https://github.com/OpenSpeleo/pytool_openspeleo_lib/pull/65).
 
-Real survey data is never committed to this repo — cave locations are
-sensitive. Tests that need it read `SPELEOCONVERT_CORPUS` and skip otherwise.
+No cave survey data is committed to this repository — cave locations are
+sensitive. Tests that need real projects read the `SPELEOCONVERT_CORPUS`
+environment variable and skip when it is unset.
 
-## Roadmap
+## License
 
-- Web front-end (drag a zip, get a `.tml`) via Pyodide — the core is
-  structured for it.
-- Design history: `docs/superpowers/specs/` and `docs/superpowers/plans/`.
+[AGPL-3.0](LICENSE), matching the `openspeleo-lib` dependency.
