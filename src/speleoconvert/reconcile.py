@@ -53,10 +53,10 @@ def _parse_tml(tml_path: str | Path) -> list[dict]:
         root = ElementTree.fromstring(z.read("Data.xml"))
     shots = []
     for el in root.findall("./Data/SurveyData"):
-        def t(tag: str) -> str:
+        def t(tag: str, el=el) -> str:
             return (el.findtext(tag) or "").strip()
 
-        def f(tag: str) -> float | None:
+        def f(tag: str, t=t) -> float | None:
             v = t(tag)
             return float(v) if v else None
 
@@ -123,7 +123,7 @@ def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
         # prefer a candidate whose azimuth agrees. Comparison is circular:
         # raw Compass data contains out-of-range bearings (e.g. -91.0) that
         # normalize to the same direction (269.0) on write.
-        def az_ok(e: _Expected, reversed_: bool) -> bool:
+        def az_ok(e: _Expected, reversed_: bool, s=s) -> bool:
             exp = e.bearing if e.bearing is not None else 0.0
             if reversed_:
                 exp = exp + 180.0

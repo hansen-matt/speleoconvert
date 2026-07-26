@@ -35,6 +35,12 @@ design and mapping rules.
 
 ## Verification
 
+Every conversion **self-audits**: the written `.tml` is independently re-read
+(stdlib XML, no shared code with the writer) and reconciled shot-by-shot
+against the parsed Compass source — station names, lengths, azimuths,
+inclinations, LRUD, depths, comments, flags, dates, team, and totals. Any
+discrepancy fails the conversion with a nonzero exit code.
+
 - Unit tests: `uv run pytest`
 - Real-project acceptance + geometry-vs-`.plt` checks:
   `SPELEOCONVERT_CORPUS=/path/to/projects uv run pytest tests/test_corpus.py -v`
