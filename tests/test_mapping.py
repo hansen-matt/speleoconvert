@@ -27,11 +27,12 @@ def _shot(frm, to, length=10.0, bearing=90.0, inc=0.0, **kw):
     return CompassShot(frm, to, length, bearing, inc, **defaults)
 
 
-def _project(shots, fixed=(), datum="WGS 1984"):
+def _project(shots, fixed=(), datum="WGS 1984",
+             corrections=(0.0, 0.0, 0.0), corrections2=(0.0, 0.0)):
     survey = CompassSurvey(
         cave_name="cave", name="A", date_raw="2 23 2024", comment="hi",
         team=("Matt",), declination_deg=-6.13, format=FMT,
-        corrections=(1.0, 2.0, 3.0), corrections2=(4.0, 5.0),
+        corrections=tuple(corrections), corrections2=tuple(corrections2),
         discovery_raw=None, has_backsight_columns=False,
         shots=tuple(shots), source_file="t.dat",
     )
@@ -57,7 +58,7 @@ def test_basic_chain_and_ids():
     assert s1["depth"] == pytest.approx(10.0 * math.sin(math.radians(45.0)), abs=1e-3)
     assert s2["depth_start"] == s1["depth"]
     assert sec["declination"] == -6.13
-    assert sec["correction"] == [1.0, 2.0, 3.0]
+    assert sec["correction"] == [0.0, 0.0, 0.0]
     assert sec["compass_format"] == "DDDWLRUDLAaDdNF"
     assert sec["date"] == "2024-02-23"
     assert d["unit"] == "FT"

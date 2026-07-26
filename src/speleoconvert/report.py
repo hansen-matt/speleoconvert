@@ -37,6 +37,11 @@ STRICT_EXEMPT_CATEGORIES = {
     "backsight-averaged",
     "backsight-discrepancy",
     "bearing-from-backsight",
+    # TML cannot store declination (Ariane derives it from date+location);
+    # the recorded value is embedded in every section comment. Flagging it in
+    # strict mode would reject every survey ever made.
+    "survey-declination",
+    "declination-zero",
     # cave name != survey name is the normal Compass file structure; the name is
     # still preserved in the section comment, so strict mode must not reject it.
     "survey-cave-name",
