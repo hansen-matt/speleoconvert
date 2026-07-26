@@ -26,7 +26,8 @@ default) is appended to the corresponding TML comment AND listed in the report.
 | shot | `Shot` (length, azimuth, inclination, LRUD, comment; depth computed from the traverse) |
 | fixed stations (UTM + NAD27/NAD83/WGS84) | WGS84 lat/lon on the anchor shot (pyproj datum shift) |
 | flag `X` (exclude) | `excluded` |
-| flags `L`/`P`/`C`, backsights, discovery date | shot/section comment + report (or `--strict` error) |
+| backsights | averaged into azimuth/inclination (as Compass does at compile time); convention auto-detected per survey; raw readings kept in the shot comment + report |
+| flags `L`/`P`/`C`, discovery date | shot/section comment + report (or `--strict` error) |
 | missing LRUD (`-9.9`) | stays absent (`<Left/>`), counted in report |
 
 See `docs/superpowers/specs/2026-07-25-compass-to-ariane-design.md` for the full

@@ -12,6 +12,13 @@ import math
 from datetime import date
 from pathlib import Path
 
+from speleoconvert.compass.backsights import (
+    DISCREPANCY_DEG,
+    BacksightConvention,
+    azimuth_discrepancy,
+    detect_backsight_convention,
+    effective_measurements,
+)
 from speleoconvert.compass.model import CompassProject, CompassShot, CompassSurvey
 from speleoconvert.geodesy import FT_TO_M, fixed_station_to_wgs84, utm_to_wgs84
 from speleoconvert.report import (
@@ -88,15 +95,17 @@ def map_project(
 
     # Phase 1: build sections; collect every shot with its section index
     sections: list[dict] = []
+    conventions: list[BacksightConvention] = []
     pending: list[tuple[int, CompassShot]] = []
     for dat in project.dat_files:
         for survey in dat.surveys:
             sections.append(_build_section(survey, report))
+            conventions.append(detect_backsight_convention(survey))
             for shot in survey.shots:
                 pending.append((len(sections) - 1, shot))
 
     # Phase 2: dependency-ordered emission
-    emitter = _Emitter(sections, fixed, z_ref, base_latlon, report)
+    emitter = _Emitter(sections, conventions, fixed, z_ref, base_latlon, report)
     remaining = pending
     while remaining:
         progressed = False
@@ -192,12 +201,14 @@ class _Emitter:
     def __init__(
         self,
         sections: list[dict],
+        conventions: list[BacksightConvention],
         fixed: dict[str, tuple[float, float, float]],
         z_ref: float,
         base_latlon: tuple[float, float] | None,
         report: ConversionReport,
     ) -> None:
         self.sections = sections
+        self.conventions = conventions
         self.fixed = fixed
         self.z_ref = z_ref
         self.base_latlon = base_latlon
@@ -266,13 +277,38 @@ class _Emitter:
         self.seen_stations.add(frm)
         self.seen_stations.add(to)
 
-        inc = shot.inclination_deg
+        scomment = shot.comment
+        conv = self.conventions[sec_idx]
+        has_backsight = shot.azm2_deg is not None or shot.inc2_deg is not None
+        merged_bearing, merged_inc = effective_measurements(shot, conv)
+
+        if has_backsight:
+            if shot.bearing_deg is not None and shot.azm2_deg is not None:
+                disc = azimuth_discrepancy(
+                    shot.bearing_deg, shot.azm2_deg,
+                    corrected=conv.azimuth_corrected,
+                )
+                if disc > DISCREPANCY_DEG:
+                    self.report.add(
+                        "backsight-discrepancy", REPORT_ONLY, loc,
+                        f"fore/back azimuths disagree by {disc:.1f} deg "
+                        f"after convention correction",
+                    )
+            if shot.bearing_deg is None and shot.azm2_deg is not None:
+                self.report.add("bearing-from-backsight", REPORT_ONLY, loc,
+                                "no foresight azimuth; derived from backsight")
+            sense = "corrected" if conv.azimuth_corrected else "reversed"
+            bs = (f"Backsight azm2={shot.azm2_deg} inc2={shot.inc2_deg} "
+                  f"averaged ({sense} convention)")
+            self.report.add("backsight-averaged", REPORT_ONLY, loc, bs)
+            scomment = _append_comment(scomment, bs)
+
+        inc = merged_inc
         if inc is None:
             self.report.add("inclination-missing", REPORT_ONLY, loc,
                             "no inclination; depth propagated as level")
             inc = 0.0
-        bearing = shot.bearing_deg
-        scomment = shot.comment
+        bearing = merged_bearing
         if bearing is None:
             self.report.add("bearing-missing", COMMENT, loc,
                             "missing bearing; wrote 0.0")
@@ -293,10 +329,6 @@ class _Emitter:
         if f.exclude_length or f.exclude_plot or f.no_adjust:
             self.report.add("shot-flags", COMMENT, loc, f"flags #|{f.raw}#")
             scomment = _append_comment(scomment, f"Compass flags: #|{f.raw}#")
-        if shot.azm2_deg is not None or shot.inc2_deg is not None:
-            bs = f"Backsight: azm2={shot.azm2_deg} inc2={shot.inc2_deg}"
-            self.report.add("backsight", COMMENT, loc, bs)
-            scomment = _append_comment(scomment, bs)
         for side, val in (("left", shot.left_ft), ("right", shot.right_ft),
                           ("up", shot.up_ft), ("down", shot.down_ft)):
             if val is None:
@@ -309,9 +341,7 @@ class _Emitter:
             "name": to,
             "length": shot.length_ft,
             "azimuth": bearing,
-            "inclination": (-shot.inclination_deg if reversed_ else
-                            shot.inclination_deg)
-                           if shot.inclination_deg is not None else None,
+            "inclination": inc if merged_inc is not None else None,
             "depth": depth_to,
             "depth_start": depth_from,
             "left": shot.left_ft, "right": shot.right_ft,

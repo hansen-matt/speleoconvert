@@ -94,13 +94,13 @@ def test_flags_and_backsights_to_comment_lenient():
     d = map_project(_project(shots), report=r)
     s1, s2 = d["sections"][0]["shots"][1:]
     assert "Compass flags: #|L#" in s1["comment"] and "c" in s1["comment"]
-    assert "Backsight: azm2=158.0 inc2=-1.5" in s2["comment"]
+    assert "Backsight azm2=158.0 inc2=-1.5 averaged" in s2["comment"]
     cats = {e.category for e in r.non_native()}
-    assert {"shot-flags", "backsight"} <= cats
+    assert {"shot-flags", "backsight-averaged"} <= cats
 
 
-def test_strict_mode_raises_on_backsight():
-    shots = [_shot("E", "S1", azm2_deg=158.0, inc2_deg=None)]
+def test_strict_mode_raises_on_flags():
+    shots = [_shot("E", "S1", flags=ShotFlags(exclude_plot=True, raw="P"))]
     with pytest.raises(StrictModeError):
         map_project(_project(shots), strict=True, report=ConversionReport("s", "o"))
 

@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import math
 
+from speleoconvert.compass.backsights import (
+    detect_backsight_convention,
+    effective_measurements,
+)
 from speleoconvert.compass.model import CompassProject
 from speleoconvert.geodesy import FT_TO_M
 
@@ -41,27 +45,27 @@ def solve_positions(
             comp[fs.name] = 0
 
     next_comp = 1
-    remaining = [
-        (shot, survey.declination_deg)
-        for dat in project.dat_files
-        for survey in dat.surveys
-        for shot in survey.shots
-    ]
+    remaining = []
+    for dat in project.dat_files:
+        for survey in dat.surveys:
+            conv = detect_backsight_convention(survey)
+            for shot in survey.shots:
+                bearing, inc = effective_measurements(shot, conv)
+                remaining.append((shot, survey.declination_deg, bearing, inc))
     while remaining:
         progressed = False
         deferred = []
-        for shot, decl in remaining:
+        for item in remaining:
+            shot, decl, bearing, inc = item
             f, t = shot.from_station, shot.to_station
             f_known, t_known = f in pos, t in pos
             if f_known and t_known:
                 progressed = True  # loop-closing shot; keep first positions
                 continue
             if not f_known and not t_known:
-                deferred.append((shot, decl))
+                deferred.append(item)
                 continue
-            dn, de, dv = _shot_delta(
-                shot.length_ft, shot.bearing_deg, shot.inclination_deg, decl
-            )
+            dn, de, dv = _shot_delta(shot.length_ft, bearing, inc, decl)
             if f_known:
                 n0, e0, v0 = pos[f]
                 pos[t] = (round(n0 + dn, 6), round(e0 + de, 6), round(v0 + dv, 6))
