@@ -33,6 +33,10 @@ _XML_TEAM_TAGS_RE = re.compile(
     r"|<XMLSurveyor>.*?</XMLSurveyor>|<XMLSurveyor/>"
 )
 
+# The library writes CSS-style colors (#FFB366); every Ariane-authored file
+# uses 0xrrggbbaa (opaque alpha 'ff' on normal shots).
+_CSS_COLOR_RE = re.compile(r"<Color>#([0-9a-fA-F]{6})</Color>")
+
 
 def _plain_explorer(match: re.Match) -> str:
     parts = [p for p in (match.group("expl"), match.group("surv")) if p]
@@ -52,6 +56,8 @@ def write_tml(survey_dict: dict, out_path: Path) -> None:
         xml = z.read("Data.xml").decode()
     fixed = _EXPLORER_RE.sub(_plain_explorer, xml)
     fixed = _XML_TEAM_TAGS_RE.sub("", fixed)
+    fixed = _CSS_COLOR_RE.sub(lambda m: f"<Color>0x{m.group(1).lower()}ff</Color>",
+                              fixed)
     if fixed != xml:
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
             z.writestr("Data.xml", fixed)
