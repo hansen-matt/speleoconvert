@@ -37,14 +37,18 @@ _ANGLE_TOL = 1e-6
 
 
 class _Expected:
-    __slots__ = ("shot", "survey_name", "bearing", "inclination", "matched")
+    __slots__ = ("shot", "survey_name", "bearing", "inclination",
+                 "az_corrected", "inc_corrected", "matched")
 
     def __init__(self, shot: CompassShot, survey_name: str,
-                 bearing: float | None, inclination: float | None) -> None:
+                 bearing: float | None, inclination: float | None,
+                 az_corrected: bool, inc_corrected: bool) -> None:
         self.shot = shot
         self.survey_name = survey_name
         self.bearing = bearing
         self.inclination = inclination
+        self.az_corrected = az_corrected
+        self.inc_corrected = inc_corrected
         self.matched = False
 
 
@@ -105,7 +109,8 @@ def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
             for shot in survey.shots:
                 bearing, inc = effective_measurements(shot, conv)
                 expected[(survey.name, shot.from_station, shot.to_station)].append(
-                    _Expected(shot, survey.name, bearing, inc)
+                    _Expected(shot, survey.name, bearing, inc,
+                              conv.azimuth_corrected, conv.inclination_corrected)
                 )
                 compass_stations.add(shot.from_station)
                 compass_stations.add(shot.to_station)
@@ -149,38 +154,45 @@ def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
                             f"Compass {c.bearing_deg} (azm2={c.azm2_deg}, "
                             f"reversed={reversed_})")
 
-        # Independent invariants, computed from RAW readings without the
-        # shared averaging helpers: an average cannot land farther from the
-        # foresight than the backsight is (under either convention), and it
-        # cannot exceed the source magnitudes for inclination. These catch
-        # transform-layer bugs that identical recomputation would mirror.
+        # Independent recomputation from RAW readings, coded inline with no
+        # call into the shared averaging helpers (compass/backsights.py). A
+        # transform-layer regression there is mirrored by the primary checks
+        # above, but not by this arithmetic (double-entry bookkeeping).
         if c.bearing_deg is not None and c.azm2_deg is not None \
                 and s["azimuth"] is not None:
-            fore = (c.bearing_deg + 180.0) % 360.0 if reversed_ else c.bearing_deg
-            # the average lies within the fore/back fold under whichever
-            # convention was used; bound by the LARGER fold so a correct
-            # average can never be rejected, while wild values (sentinel
-            # leaks, sign explosions) still fail
-            spread = max(_fold(c.bearing_deg, c.azm2_deg),
-                         _fold(c.bearing_deg, c.azm2_deg + 180.0))
-            if _fold(fore, s["azimuth"]) > spread + 0.01:
+            back = c.azm2_deg if e.az_corrected else c.azm2_deg + 180.0
+            delta = ((back - c.bearing_deg + 180.0) % 360.0) - 180.0
+            exp_az = c.bearing_deg if abs(delta) > 179.99 \
+                else (c.bearing_deg + delta / 2.0) % 360.0
+            if reversed_:
+                exp_az = (exp_az + 180.0) % 360.0
+            if _fold(exp_az, s["azimuth"]) > 0.02:
                 problems.append(
-                    f"{loc}: azimuth {s['azimuth']} lies outside the fore/back "
-                    f"envelope ({c.bearing_deg} / {c.azm2_deg})")
-        if s["inclination"] is not None:
-            max_src = max(abs(c.inclination_deg or 0.0), abs(c.inc2_deg or 0.0))
-            if abs(s["inclination"]) > max_src + 0.01:
+                    f"{loc}: azimuth {s['azimuth']} disagrees with independent "
+                    f"fore/back midpoint {exp_az:.4f} "
+                    f"(fore={c.bearing_deg}, back={c.azm2_deg})")
+        if c.inclination_deg is not None and c.inc2_deg is not None \
+                and s["inclination"] is not None:
+            back_inc = c.inc2_deg if e.inc_corrected else -c.inc2_deg
+            exp_i = (c.inclination_deg + back_inc) / 2.0
+            if reversed_:
+                exp_i = -exp_i
+            if abs(exp_i - s["inclination"]) > 0.02:
                 problems.append(
-                    f"{loc}: inclination {s['inclination']} exceeds source "
-                    f"magnitudes (fore={c.inclination_deg}, back={c.inc2_deg})")
+                    f"{loc}: inclination {s['inclination']} disagrees with "
+                    f"independent fore/back mean {exp_i:.4f}")
         exp_inc = e.inclination
         if exp_inc is not None and reversed_:
             exp_inc = -exp_inc
         if not _close(exp_inc, s["inclination"], 1e-4):
             problems.append(f"{loc}: inclination {s['inclination']} != "
                             f"expected {exp_inc}")
-        for side in ("left", "right", "up", "down"):
-            want = getattr(c, f"{side}_ft")
+        lrud_map = {"left": c.left_ft, "right": c.right_ft,
+                    "up": c.up_ft, "down": c.down_ft}
+        if reversed_:  # reversed shots face the other way: walls swap
+            lrud_map["left"], lrud_map["right"] = (lrud_map["right"],
+                                                   lrud_map["left"])
+        for side, want in lrud_map.items():
             if not _close(want, s[side], 1e-6):
                 problems.append(f"{loc}: {side} {s[side]} != Compass {want}")
         if s["depth"] is not None and s["depth_in"] is not None:

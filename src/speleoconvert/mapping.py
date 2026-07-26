@@ -96,8 +96,10 @@ def map_project(
                 project.base_easting_m, project.base_northing_m,
                 project.base_zone, project.datum,
             )
-        except Exception:  # unsupported datum: base anchor is best-effort only
+        except Exception as exc:  # unsupported datum/zone: anchor unavailable
             base_latlon = None
+            report.add("mak-base-unconvertible", REPORT_ONLY, project.mak_path,
+                       f"base location could not be geo-referenced: {exc}")
 
     z_ref = next(iter(fixed.values()))[2] if fixed else 0.0
 
@@ -408,7 +410,10 @@ class _Emitter:
 
             "depth": _round_half_ft(depth_to),
             "depth_start": _round_half_ft(depth_from),
-            "left": shot.left_ft, "right": shot.right_ft,
+            # LRUD is recorded facing the direction of travel; a reversed
+            # shot faces the other way, so left and right swap (up/down don't)
+            "left": shot.right_ft if reversed_ else shot.left_ft,
+            "right": shot.left_ft if reversed_ else shot.right_ft,
             "up": shot.up_ft, "down": shot.down_ft,
             "excluded": f.exclude_all,
             "comment": scomment or None,

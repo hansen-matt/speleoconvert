@@ -26,8 +26,9 @@ STRICT_EXEMPT_CATEGORIES = {
     # in Compass either; we anchor it at the base location and note it.
     "component-unfixed",
     # chain reversal is REQUIRED by Ariane's rooted-tree model whenever a chain
-    # was surveyed toward its tie-in; it is geometry-preserving and the original
-    # direction is recorded in the shot comment.
+    # was surveyed toward its tie-in; it is geometry-preserving (azimuth +180,
+    # inclination negated, left/right walls swapped) and every reversal is
+    # itemized in the report.
     "shot-reversed",
     # the Compass editor's all-zero "From Station  To Station" template row is
     # not survey data; skipping it loses nothing.

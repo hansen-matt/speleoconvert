@@ -45,14 +45,22 @@ def _convert(args: argparse.Namespace) -> int:
     from speleoconvert.report import ConversionReport, StrictModeError
 
     out = args.output or args.mak.with_suffix(".tml")
+    if out.suffix.lower() != ".tml":
+        print(f"error: output must be a .tml file, got {out}", file=sys.stderr)
+        return 2
     report_path = args.report or Path(f"{out}.report.json")
+    paths = {p.resolve() for p in (args.mak, out, report_path)}
+    if len(paths) != 3:
+        print("error: input, output, and report paths must all differ "
+              f"({args.mak} / {out} / {report_path})", file=sys.stderr)
+        return 2
     report = ConversionReport(source=str(args.mak), output=str(out))
     try:
         project = load_project(args.mak)
         survey_dict = map_project(project, strict=args.strict, report=report)
         write_tml(survey_dict, out)
     except (ParseError, GeodesyError, StrictModeError, FileNotFoundError,
-            OSError, ValueError) as e:
+            OSError, ValueError, TypeError) as e:
         # ValueError also covers pydantic ValidationError from the writer
         print(f"error: {e}", file=sys.stderr)
         if report.entries:  # keep whatever audit trail exists
