@@ -37,6 +37,12 @@ _XML_TEAM_TAGS_RE = re.compile(
 # uses 0xrrggbbaa (opaque alpha 'ff' on normal shots).
 _CSS_COLOR_RE = re.compile(r"<Color>#([0-9a-fA-F]{6})</Color>")
 
+# Whole-number distances render as '41.0' in Ariane's table; store them as
+# '41' so the display stays clean (user preference; Ariane parses either).
+_WHOLE_DISTANCE_RE = re.compile(
+    r"<(Length|Depth|DepthIn|Left|Right|Up|Down)>(-?\d+)\.0</\1>"
+)
+
 
 def _plain_explorer(match: re.Match) -> str:
     parts = [p for p in (match.group("expl"), match.group("surv")) if p]
@@ -58,6 +64,7 @@ def write_tml(survey_dict: dict, out_path: Path) -> None:
     fixed = _XML_TEAM_TAGS_RE.sub("", fixed)
     fixed = _CSS_COLOR_RE.sub(lambda m: f"<Color>0x{m.group(1).lower()}ff</Color>",
                               fixed)
+    fixed = _WHOLE_DISTANCE_RE.sub(r"<\1>\2</\1>", fixed)
     if fixed != xml:
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
             z.writestr("Data.xml", fixed)

@@ -24,7 +24,9 @@ class ShotFlags:
 
     @classmethod
     def parse(cls, token: str) -> ShotFlags:
-        inner = token.removeprefix("#|").removesuffix("#")
+        # whitespace-only flag tokens ("#| #") occur in old files; they carry
+        # no information, so raw is stored stripped
+        inner = token.removeprefix("#|").removesuffix("#").strip()
         return cls(
             exclude_length="L" in inner,
             exclude_plot="P" in inner,
