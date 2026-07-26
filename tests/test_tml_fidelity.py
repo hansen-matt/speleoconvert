@@ -50,15 +50,16 @@ def test_declination_and_corrections_reported(tmp_path):
     assert "survey-format" in cats
 
 
-def test_section_plain_and_explorer_native_form(tmp_path):
+def test_section_and_explorer_fields_are_plain_text(tmp_path):
+    # Ariane's data table displays these fields RAW (screenshot-verified even
+    # for Ariane-authored files with embedded fragments), so plain text is the
+    # only clean-rendering form — and it is itself genuine Ariane output
+    # (test_simple.tml stores a bare string).
     xml = _xml(_convert(_project([_shot("E", "S1")]), tmp_path))
     assert "<Section>A</Section>" in xml            # plain name, no embedding
     assert "SectionDescription" not in xml
-    # Ariane-native Explorer form (as written by Ariane itself, both tags):
-    assert ("<Explorer>&lt;Explorer&gt;Matt&lt;/Explorer&gt;"
-            "&lt;Surveyor&gt;Matt&lt;/Surveyor&gt;</Explorer>") in xml
-    # real Ariane files carry no XMLExplorer/XMLSurveyor tags; Ariane renders
-    # them as literal text in the Explorer column
+    assert "<Explorer>Matt</Explorer>" in xml       # plain names, no tags
+    assert "&lt;Surveyor&gt;" not in xml
     assert "XMLExplorer" not in xml
     assert "XMLSurveyor" not in xml
 
@@ -135,16 +136,14 @@ def test_zero_declination_with_real_date_is_flagged():
     assert any(e.category == "declination-zero" for e in r.entries)
 
 
-def test_ampersand_names_nest_correctly(tmp_path):
-    # In the native embedded form the name is escaped TWICE in the file bytes
-    # (outer XML layer + inner fragment layer) — Ariane unescapes both when it
-    # parses the fragment, so the screen shows the plain name.
+def test_ampersand_names_escaped_once(tmp_path):
     prj = _project([_shot("E", "S1")])
     object.__setattr__(prj.dat_files[0].surveys[0], "team",
                        ("A. Pitkin & C. Roberson",))
     out = _convert(prj, tmp_path)
     xml = _xml(out)
-    assert "&lt;Surveyor&gt;A. Pitkin &amp;amp; C. Roberson&lt;/Surveyor&gt;" in xml
+    assert "<Explorer>A. Pitkin &amp; C. Roberson</Explorer>" in xml
+    assert "&amp;amp;" not in xml
     # and it parses back to the plain name
     back = read_tml(out)
     sec = back.sections[0]

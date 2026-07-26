@@ -8,31 +8,38 @@ from pathlib import Path
 from openspeleo_lib.generators import UniqueValueGenerator
 from openspeleo_lib.interfaces.ariane.interface import ArianeInterface, ArianeSurvey
 
-# Ariane's native Explorer encoding (verified against hand_survey.tml, a real
-# Ariane-authored cave file) is an escaped embedded fragment with BOTH tags:
-#     <Explorer>&lt;Explorer&gt;E&lt;/Explorer&gt;&lt;Surveyor&gt;S&lt;/Surveyor&gt;</Explorer>
-# The library instead writes a Surveyor-only fragment when explorers are empty,
-# which Ariane fails to parse and renders raw. Rewrite to the native form,
-# using the Compass survey team as both explorers and surveyors.
-_EXPLORER_RE = re.compile(r"<Explorer>&lt;Surveyor&gt;(.*?)&lt;/Surveyor&gt;</Explorer>")
+# Ariane's data table displays the Explorer field as RAW text — verified with
+# a screenshot of an Ariane-authored file (embedded <Explorer>/<Surveyor>
+# fragments render as literal tags on screen). The only form that displays
+# cleanly is plain text, which is itself genuine Ariane output (test_simple.tml
+# in the OpenSpeleo test artifacts stores a bare string). Rewrite the library's
+# embedded fragment — Surveyor-only or both-tags — to plain comma-joined names.
+_EXPLORER_RE = re.compile(
+    r"<Explorer>"
+    r"(?:&lt;Explorer&gt;(?P<expl>.*?)&lt;/Explorer&gt;)?"
+    r"(?:&lt;Surveyor&gt;(?P<surv>.*?)&lt;/Surveyor&gt;)?"
+    r"</Explorer>"
+)
+
+# Inner-fragment text is escaped twice (fragment serializer + XML writer);
+# plain text must be escaped exactly once. Collapse one level for recognized
+# entities only.
+_DOUBLE_ESCAPE_RE = re.compile(r"&amp;(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);")
 
 # The library also writes XMLExplorer/XMLSurveyor tags on every shot. Real
-# Ariane files don't contain them, and Ariane renders them into the Explorer
-# column as literal text. Drop them.
+# Ariane files don't contain them and Ariane renders them as literal text.
 _XML_TEAM_TAGS_RE = re.compile(
     r"<XMLExplorer>.*?</XMLExplorer>|<XMLExplorer/>"
     r"|<XMLSurveyor>.*?</XMLSurveyor>|<XMLSurveyor/>"
 )
 
 
-def _native_explorer(match: re.Match) -> str:
-    team = match.group(1)
-    return (
-        "<Explorer>"
-        f"&lt;Explorer&gt;{team}&lt;/Explorer&gt;"
-        f"&lt;Surveyor&gt;{team}&lt;/Surveyor&gt;"
-        "</Explorer>"
-    )
+def _plain_explorer(match: re.Match) -> str:
+    parts = [p for p in (match.group("expl"), match.group("surv")) if p]
+    # explorers and surveyors are usually the same team; don't repeat names
+    names = ",".join(dict.fromkeys(n for part in parts for n in part.split(",")))
+    names = _DOUBLE_ESCAPE_RE.sub(r"&\1;", names)
+    return f"<Explorer>{names}</Explorer>"
 
 
 def write_tml(survey_dict: dict, out_path: Path) -> None:
@@ -43,7 +50,7 @@ def write_tml(survey_dict: dict, out_path: Path) -> None:
 
     with zipfile.ZipFile(out_path) as z:
         xml = z.read("Data.xml").decode()
-    fixed = _EXPLORER_RE.sub(_native_explorer, xml)
+    fixed = _EXPLORER_RE.sub(_plain_explorer, xml)
     fixed = _XML_TEAM_TAGS_RE.sub("", fixed)
     if fixed != xml:
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
