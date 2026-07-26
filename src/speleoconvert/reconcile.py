@@ -121,7 +121,8 @@ def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
         direct = expected.get((s["section"], frm, s["name"]), [])
         rev = expected.get((s["section"], s["name"], frm), [])
         cands = [(e, False) for e in direct if not e.matched]
-        cands += [(e, True) for e in rev if not e.matched]
+        if s["name"] != frm:  # self-loops: reversed key is identical; direct only
+            cands += [(e, True) for e in rev if not e.matched]
         cands = [(e, r) for e, r in cands if _close(e.shot.length_ft, s["length"])]
         if not cands:
             problems.append(f"{loc}: no Compass shot matches "
@@ -156,7 +157,11 @@ def reconcile(project: CompassProject, tml_path: str | Path) -> list[str]:
         if c.bearing_deg is not None and c.azm2_deg is not None \
                 and s["azimuth"] is not None:
             fore = (c.bearing_deg + 180.0) % 360.0 if reversed_ else c.bearing_deg
-            spread = min(_fold(c.bearing_deg, c.azm2_deg),
+            # the average lies within the fore/back fold under whichever
+            # convention was used; bound by the LARGER fold so a correct
+            # average can never be rejected, while wild values (sentinel
+            # leaks, sign explosions) still fail
+            spread = max(_fold(c.bearing_deg, c.azm2_deg),
                          _fold(c.bearing_deg, c.azm2_deg + 180.0))
             if _fold(fore, s["azimuth"]) > spread + 0.01:
                 problems.append(

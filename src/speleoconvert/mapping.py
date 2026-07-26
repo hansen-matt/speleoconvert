@@ -405,7 +405,7 @@ class _Emitter:
             "name": to,
             "length": shot.length_ft,
             "azimuth": bearing,
-            "inclination": inc if merged_inc is not None else None,
+
             "depth": _round_half_ft(depth_to),
             "depth_start": _round_half_ft(depth_from),
             "left": shot.left_ft, "right": shot.right_ft,
@@ -413,6 +413,10 @@ class _Emitter:
             "excluded": f.exclude_all,
             "comment": scomment or None,
         }
+        if merged_inc is not None:
+            # explicit None fails the writer library's validation (the field
+            # defaults to None only when the key is omitted entirely)
+            entry["inclination"] = inc
         if to in self.station_shot_id:
             # Loop-closing shot. Ariane renders Type=CLOSURE shots dashed, as if
             # excluded; keep the shot REAL (solid, normal passage) and encode the

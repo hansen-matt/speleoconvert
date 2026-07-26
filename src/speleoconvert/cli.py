@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
@@ -54,6 +55,9 @@ def _convert(args: argparse.Namespace) -> int:
             OSError, ValueError) as e:
         # ValueError also covers pydantic ValidationError from the writer
         print(f"error: {e}", file=sys.stderr)
+        if report.entries:  # keep whatever audit trail exists
+            with contextlib.suppress(OSError):
+                report_path.write_text(report.to_json())
         return 1
 
     # Every conversion self-audits: the written file is independently re-read
