@@ -21,13 +21,6 @@ pytestmark = pytest.mark.skipif(not CORPUS, reason="SPELEOCONVERT_CORPUS not set
 KNOWN_BROKEN = {
     "M2 Blue Cave System Project.MAK":
         "references 'Fennells Funnel.DAT' which does not exist in the directory",
-    "Indian data.mak":
-        "Indian data.dat contains a placeholder shot row 'From Station  To Station'"
-        " (spaces in station names; leftover import-template scratch data)",
-    "Indian data for import.mak":
-        "same placeholder shot row family as Indian data.mak (import scratch files)",
-    "Indian Springs Cave.MAK":
-        "links Indian data.dat, which has the placeholder shot row",
     "m2blueHires.mak":
         "references 'M2B.DAT' which does not exist (directory has M2BHires.DAT)",
 }
@@ -47,6 +40,9 @@ GEOMETRY_EXEMPT = {
     "Rose Creek.MAK":
         "McCormick branch offset ~90 ft from plt (duplicate-survey conflict "
         "between Rose Creek and McCormick DATs)",
+    "Indian data for import.mak":
+        "import-experiment scratch variant; half the stations sit exactly "
+        "~100 ft east of the plt (subtree translation, variant-data conflict)",
 }
 
 

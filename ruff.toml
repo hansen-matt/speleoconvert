@@ -2,3 +2,7 @@ line-length = 100
 
 [lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[lint.per-file-ignores]
+# verbatim Compass file fixtures must stay byte-exact
+"tests/test_parser_dat_quirks.py" = ["E501"]

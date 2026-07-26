@@ -121,10 +121,14 @@ def _parse_survey(lines: list[str], *, file: str, line_offset: int) -> CompassSu
         )
 
     shots: list[CompassShot] = []
+    placeholder_lines: list[int] = []
     n_numeric = 7 + (2 if has_backsights else 0)
     for i in range(hdr_idx + 1, len(lines)):
         line = lines[i]
         if not line.strip():
+            continue
+        if _is_placeholder_row(line):
+            placeholder_lines.append(ln(i))
             continue
         shots.append(_parse_shot(line, n_numeric, has_backsights, file=file, line_no=ln(i)))
 
@@ -142,7 +146,21 @@ def _parse_survey(lines: list[str], *, file: str, line_offset: int) -> CompassSu
         has_backsight_columns=has_backsights,
         shots=tuple(shots),
         source_file=file,
+        placeholder_lines=tuple(placeholder_lines),
     )
+
+
+def _is_placeholder_row(line: str) -> bool:
+    """Compass's editor writes a template row 'From Station  To Station  0.00 ...'
+    into fresh files; it is not survey data. Only this exact pattern is skipped —
+    any other malformed line is still a hard error."""
+    tokens = line.split()
+    if tokens[:4] != ["From", "Station", "To", "Station"]:
+        return False
+    try:
+        return all(float(t) == 0.0 for t in tokens[4:])
+    except ValueError:
+        return False
 
 
 def _parse_shot(
