@@ -317,7 +317,10 @@ class _Emitter:
             "comment": scomment or None,
         }
         if to in self.station_shot_id:
-            entry["shot_type"] = "CLOSURE"
+            # Loop-closing shot. Ariane renders Type=CLOSURE shots dashed, as if
+            # excluded; keep the shot REAL (solid, normal passage) and encode the
+            # tie via closure_to_id + the duplicate station name.
+            entry["shot_type"] = "REAL"
             entry["closure_to_id"] = self.station_shot_id[to]
             self.report.add("loop-closure", NATIVE, loc, f"loop closes onto {to}")
         else:
