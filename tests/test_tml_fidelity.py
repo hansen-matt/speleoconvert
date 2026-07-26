@@ -56,6 +56,10 @@ def test_section_and_explorer_fields_are_plain_text(tmp_path):
     assert "SectionDescription" not in xml
     assert "<Explorer>Matt</Explorer>" in xml       # plain names, no <Surveyor>
     assert "&lt;Surveyor&gt;" not in xml
+    # real Ariane files carry no XMLExplorer/XMLSurveyor tags; some Ariane
+    # versions render them as literal text in the Explorer column
+    assert "XMLExplorer" not in xml
+    assert "XMLSurveyor" not in xml
 
 
 def test_survey_comment_rides_first_shot(tmp_path):
