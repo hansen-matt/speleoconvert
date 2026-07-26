@@ -166,6 +166,9 @@ def _build_section(survey: CompassSurvey, report: ConversionReport) -> dict:
     if survey.format.lrud_association == "F":
         report.add("format-display-order", REPORT_ONLY, loc,
                    "LRUD recorded at FROM station (Ariane displays at shot end)")
+    for line_no in survey.placeholder_lines:
+        report.add("placeholder-shot", REPORT_ONLY, f"{loc}:{line_no}",
+                   "Compass editor placeholder row skipped (all-zero template)")
 
     return {
         "name": survey.name,

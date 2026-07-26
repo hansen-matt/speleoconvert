@@ -110,6 +110,9 @@ class CompassSurvey:
     has_backsight_columns: bool
     shots: tuple[CompassShot, ...]
     source_file: str
+    # line numbers of skipped Compass-editor placeholder rows
+    # ("From Station   To Station   0.00 ...")
+    placeholder_lines: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

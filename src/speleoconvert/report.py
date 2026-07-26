@@ -29,6 +29,9 @@ STRICT_EXEMPT_CATEGORIES = {
     # was surveyed toward its tie-in; it is geometry-preserving and the original
     # direction is recorded in the shot comment.
     "shot-reversed",
+    # the Compass editor's all-zero "From Station  To Station" template row is
+    # not survey data; skipping it loses nothing.
+    "placeholder-shot",
     # cave name != survey name is the normal Compass file structure; the name is
     # still preserved in the section comment, so strict mode must not reject it.
     "survey-cave-name",
