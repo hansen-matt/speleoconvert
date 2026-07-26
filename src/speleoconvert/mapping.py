@@ -46,6 +46,12 @@ def _append_comment(existing: str, addition: str) -> str:
     return f"{existing} | {addition}" if existing else addition
 
 
+def _round_half_ft(x: float) -> float:
+    """Depths to the nearest half foot: trig on whole-degree/foot survey data
+    produces noise like 58.9994 that clutters Ariane's data table."""
+    return round(x * 2.0) / 2.0
+
+
 def map_project(
     project: CompassProject, *, strict: bool = False, report: ConversionReport
 ) -> dict:
@@ -134,19 +140,24 @@ def map_project(
 
     for name in fixed:
         if name not in emitter.seen_stations:
-            report.add("fixed-station-orphan", COMMENT, project.mak_path,
+            report.add("fixed-station-orphan", REPORT_ONLY, project.mak_path,
                        f"fixed station {name!r} not present in any shot")
-            if sections:
-                sections[0]["comment"] = _append_comment(
-                    sections[0]["comment"] or "",
-                    f"Orphan fixed station from .mak: {name}",
-                )
 
     if strict and (violations := report.strict_violations()):
         raise StrictModeError(violations)
 
     for section in sections:
+        # survey-level notes are real data; TML's only clean per-record text
+        # field is the shot comment, so they ride on the section's first shot
+        if section["_survey_notes"] and section["shots"]:
+            first = section["shots"][0]
+            existing = first.get("comment") or ""
+            first["comment"] = (
+                f"{section['_survey_notes']} | {existing}" if existing
+                else section["_survey_notes"]
+            )
         del section["_source_file"]
+        del section["_survey_notes"]
 
     return {
         "name": Path(project.mak_path).stem,
@@ -158,53 +169,57 @@ def map_project(
 
 
 def _build_section(survey: CompassSurvey, report: ConversionReport) -> dict:
+    """Ariane's data table shows Section and Explorer as PLAIN text (embedded
+    XML renders raw), so section fields stay clean: survey-level notes that are
+    real data go onto the section's first shot comment; audit metadata
+    (declination, format string, corrections) goes to the report only."""
     loc = survey.source_file
-    comment = survey.comment
+    notes: list[str] = []
+    if survey.comment:
+        report.add("survey-comment", COMMENT, loc,
+                   "survey comment moved to first shot comment")
+        notes.append(f"Survey comment: {survey.comment}")
     iso = _iso_date(survey.date_raw)
     if iso is None and survey.date_raw.strip():
         report.add("survey-date", COMMENT, loc,
                    f"unparseable SURVEY DATE {survey.date_raw!r}")
-        comment = _append_comment(comment, f"Compass survey date: {survey.date_raw}")
+        notes.append(f"Compass survey date: {survey.date_raw}")
     if survey.discovery_raw:
         report.add("survey-discovery", COMMENT, loc,
                    f"DISCOVERY {survey.discovery_raw!r}")
-        comment = _append_comment(comment, f"Discovery: {survey.discovery_raw}")
+        notes.append(f"Discovery: {survey.discovery_raw}")
     if survey.cave_name and survey.cave_name != survey.name:
-        report.add("survey-cave-name", COMMENT, loc, f"cave name {survey.cave_name!r}")
-        comment = _append_comment(comment, f"Cave: {survey.cave_name}")
+        report.add("survey-cave-name", REPORT_ONLY, loc,
+                   f"cave name {survey.cave_name!r}")
     if survey.format.lrud_association == "F":
         report.add("format-display-order", REPORT_ONLY, loc,
                    "LRUD recorded at FROM station (Ariane displays at shot end)")
+    report.add("survey-format", REPORT_ONLY, loc,
+               f"Compass FORMAT {survey.format.raw} (display metadata; "
+               "not stored in TML)")
     for line_no in survey.placeholder_lines:
         report.add("placeholder-shot", REPORT_ONLY, f"{loc}:{line_no}",
                    "Compass editor placeholder row skipped (all-zero template)")
 
-    # The Ariane TML format has NO fields for declination, instrument
-    # corrections, or the Compass format string (Ariane derives declination
-    # from section date + survey location). The writer library's Section model
-    # carries them but its encoder drops them, so embed them in the comment.
-    meta_bits = [f"declination {survey.declination_deg}",
-                 f"format {survey.format.raw}"]
+    # TML has no fields for declination or corrections; Ariane derives
+    # declination from section date + survey location.
     if survey.declination_deg != 0.0:
-        report.add("survey-declination", COMMENT, loc,
-                   f"declination {survey.declination_deg} kept in comment; "
+        report.add("survey-declination", REPORT_ONLY, loc,
+                   f"declination {survey.declination_deg} not stored in TML; "
                    "Ariane derives declination from date+location")
-    elif _iso_date(survey.date_raw):
+    elif iso:
         report.add("declination-zero", REPORT_ONLY, loc,
                    "DECLINATION 0.00 with a real date: Compass applied no "
                    "correction but Ariane will auto-compute one; bearings will "
                    "render rotated vs Compass")
     if survey.corrections and any(survey.corrections):
-        meta_bits.append("corrections " + " ".join(str(c) for c in survey.corrections))
-        report.add("survey-corrections", COMMENT, loc,
+        report.add("survey-corrections", REPORT_ONLY, loc,
                    f"nonzero instrument corrections {survey.corrections} have no "
-                   "Ariane equivalent (kept in comment, never applied)")
+                   "Ariane equivalent (report-only, never applied)")
     if survey.corrections2 and any(survey.corrections2):
-        meta_bits.append("corrections2 " + " ".join(str(c) for c in survey.corrections2))
-        report.add("survey-corrections", COMMENT, loc,
+        report.add("survey-corrections", REPORT_ONLY, loc,
                    f"nonzero backsight corrections {survey.corrections2} have no "
-                   "Ariane equivalent (kept in comment, never applied)")
-    comment = _append_comment(comment, "Compass: " + ", ".join(meta_bits))
+                   "Ariane equivalent (report-only, never applied)")
 
     return {
         "name": survey.name,
@@ -216,13 +231,10 @@ def _build_section(survey: CompassSurvey, report: ConversionReport) -> dict:
         "compass_format": survey.format.raw,
         "correction": list(survey.corrections or (0.0, 0.0, 0.0)),
         "correction2": list(survey.corrections2 or (0.0, 0.0)),
-        # TML round-trips only `description` at section level (embedded as
-        # <SectionDescription> inside the shot Section field); `comment` and
-        # the fields above are dropped by the format. Keep both populated.
-        "comment": comment or None,
-        "description": comment or None,
+        "comment": None,
         "shots": [],
         "_source_file": loc,
+        "_survey_notes": " | ".join(notes),
     }
 
 
@@ -281,6 +293,7 @@ class _Emitter:
         self.station_shot_id[station] = self.next_id
         self.station_depth[station] = start["depth"]
         self.seen_stations.add(station)
+        start["depth"] = _round_half_ft(start["depth"])
         self.sections[sec_idx]["shots"].append(start)
         self.next_id += 1
 
@@ -348,13 +361,14 @@ class _Emitter:
         if reversed_:
             bearing = (bearing + 180.0) % 360.0
             inc = -inc
-            note = (f"Reversed from Compass (recorded "
-                    f"{shot.from_station} -> {shot.to_station})")
-            scomment = _append_comment(scomment, note)
-            self.report.add("shot-reversed", COMMENT, loc, note)
+            self.report.add("shot-reversed", REPORT_ONLY, loc,
+                            f"emitted reversed (recorded "
+                            f"{shot.from_station} -> {shot.to_station})")
 
         depth_from = self.station_depth[frm]
-        depth_to = round(depth_from - shot.length_ft * math.sin(math.radians(inc)), 4)
+        # full precision propagates through station_depth (rounding here would
+        # random-walk down long chains); only the EMITTED values are rounded
+        depth_to = depth_from - shot.length_ft * math.sin(math.radians(inc))
 
         f = shot.flags
         if f.exclude_length or f.exclude_plot or f.no_adjust:
@@ -373,8 +387,8 @@ class _Emitter:
             "length": shot.length_ft,
             "azimuth": bearing,
             "inclination": inc if merged_inc is not None else None,
-            "depth": depth_to,
-            "depth_start": depth_from,
+            "depth": _round_half_ft(depth_to),
+            "depth_start": _round_half_ft(depth_from),
             "left": shot.left_ft, "right": shot.right_ft,
             "up": shot.up_ft, "down": shot.down_ft,
             "excluded": f.exclude_all,

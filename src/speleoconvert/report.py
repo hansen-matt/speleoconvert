@@ -42,6 +42,9 @@ STRICT_EXEMPT_CATEGORIES = {
     # strict mode would reject every survey ever made.
     "survey-declination",
     "declination-zero",
+    # the FORMAT string is data-entry display metadata; values are already
+    # normalized to feet/degrees on disk.
+    "survey-format",
     # cave name != survey name is the normal Compass file structure; the name is
     # still preserved in the section comment, so strict mode must not reject it.
     "survey-cave-name",

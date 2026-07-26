@@ -1,12 +1,15 @@
 """End-to-end fidelity tests: what actually survives a TML write + re-read.
 
-Documents a hard limit of the Ariane TML format discovered 2026-07-26: the XML
-has NO fields for section declination, instrument corrections, or the Compass
-format string — openspeleo-lib's Section model carries them, but ariane_encode
-drops them at write time. Ariane instead derives declination from each
-section's date + the survey's geographic location (useMagneticAzimuth=true).
-Consequently speleoconvert must embed these values in the section comment.
+Documents hard limits of the Ariane TML format discovered 2026-07-26:
+- the XML has NO fields for section declination, instrument corrections, the
+  Compass format string, or section comments (Ariane derives declination from
+  each section's date + the survey's location; useMagneticAzimuth=true);
+- Ariane's data table renders the Section and Explorer fields as PLAIN TEXT,
+  so embedded-XML conventions show up raw and must not be used.
+Survey-level notes therefore ride the section's first shot comment; audit
+metadata lives in the conversion report only.
 """
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -18,36 +21,68 @@ from speleoconvert.report import ConversionReport
 from tests.test_mapping import _project, _shot
 
 
-def _convert_and_reread(prj, tmp_path: Path, report=None):
+def _convert(prj, tmp_path: Path, report=None) -> Path:
     d = map_project(prj, report=report or ConversionReport("s", "o"))
     out = tmp_path / "out.tml"
     write_tml(d, out)
-    return read_tml(out)
+    return out
+
+
+def _xml(path: Path) -> str:
+    with zipfile.ZipFile(path) as z:
+        return z.read("Data.xml").decode()
 
 
 def test_tml_cannot_store_declination_natively(tmp_path):
     # Upstream behavior pin: if this ever starts passing declination through,
-    # the comment-embedding workaround can be removed.
-    back = _convert_and_reread(_project([_shot("E", "S1")]), tmp_path)
+    # revisit the report-only handling.
+    back = read_tml(_convert(_project([_shot("E", "S1")]), tmp_path))
     assert back.sections[0].declination == 0.0  # -6.13 was dropped by the format
 
 
-def test_declination_preserved_in_section_description(tmp_path):
+def test_declination_and_corrections_reported(tmp_path):
     r = ConversionReport("s", "o")
-    back = _convert_and_reread(_project([_shot("E", "S1")]), tmp_path, report=r)
-    sec = back.sections[0]
-    assert "declination -6.13" in (sec.description or "")
-    assert any(e.category == "survey-declination" for e in r.entries)
+    _convert(_project([_shot("E", "S1")], corrections=(1.0, 2.0, 3.0)),
+             tmp_path, report=r)
+    cats = {e.category for e in r.entries}
+    assert "survey-declination" in cats
+    assert "survey-corrections" in cats
+    assert "survey-format" in cats
 
 
-def test_nonzero_corrections_preserved_and_flagged(tmp_path):
-    r = ConversionReport("s", "o")
-    back = _convert_and_reread(
-        _project([_shot("E", "S1")], corrections=(1.0, 2.0, 3.0)),
-        tmp_path, report=r,
+def test_section_and_explorer_fields_are_plain_text(tmp_path):
+    xml = _xml(_convert(_project([_shot("E", "S1")]), tmp_path))
+    assert "<Section>A</Section>" in xml            # plain name, no embedding
+    assert "SectionDescription" not in xml
+    assert "<Explorer>Matt</Explorer>" in xml       # plain names, no <Surveyor>
+    assert "&lt;Surveyor&gt;" not in xml
+
+
+def test_survey_comment_rides_first_shot(tmp_path):
+    back = read_tml(
+        _convert(_project([_shot("E", "S1")], comment="hi"), tmp_path)
     )
-    assert "corrections 1.0 2.0 3.0" in (back.sections[0].description or "")
-    assert any(e.category == "survey-corrections" for e in r.entries)
+    first = back.sections[0].shots[0]
+    assert "Survey comment: hi" in first.comment
+
+
+def test_depths_round_to_half_foot(tmp_path):
+    # 100 ft at -33 deg -> 54.4636 ft of depth -> 54.5
+    shots = [_shot("E", "S1", length=100.0, bearing=90.0, inc=-33.0)]
+    back = read_tml(_convert(_project(shots), tmp_path))
+    s1 = [s for s in back.sections[0].shots if s.name == "S1"][0]
+    assert s1.depth == 54.5
+    assert s1.depth * 2 == int(s1.depth * 2)
+
+
+def test_no_reversal_comments(tmp_path):
+    # chain surveyed toward its fixed tie-in gets reversed silently
+    fixed = [FixedStation("A", "f", 933560.866, 11070112.205, 0.0, raw="")]
+    shots = [_shot("S1", "S2"), _shot("S2", "A")]
+    back = read_tml(_convert(_project(shots, fixed=fixed), tmp_path))
+    for sec in back.sections:
+        for sh in sec.shots:
+            assert "Reversed" not in (sh.comment or "")
 
 
 def test_kitchen_sink_survives_roundtrip(tmp_path):
@@ -60,12 +95,11 @@ def test_kitchen_sink_survives_roundtrip(tmp_path):
         _shot("S2", "S3", azm2_deg=272.0, inc2_deg=0.0),
         _shot("S3", "E"),  # loop
     ]
-    back = _convert_and_reread(_project(shots, fixed=fixed), tmp_path)
+    back = read_tml(_convert(_project(shots, fixed=fixed), tmp_path))
     sec = back.sections[0]
     by_name = {s.name: s for s in sec.shots}
 
     assert sec.date.isoformat() == "2024-02-23"
-    assert sec.surveyors == ["Matt"]
     start = sec.shots[0]  # the loop shot is also named "E"; take the START
     assert start.shot_type.value == "START"
     assert start.latitude == pytest.approx(30.48, abs=0.05)
@@ -75,6 +109,9 @@ def test_kitchen_sink_survives_roundtrip(tmp_path):
     assert "silty restriction" in s1.comment
     assert by_name["S2"].excluded is True
     assert "azm2=272.0" in by_name["S3"].comment
+    # team names present somewhere Ariane shows them
+    team_text = " ".join((sec.surveyors or []) + (sec.explorers or []))
+    assert "Matt" in team_text
     # the loop shot back onto E: REAL, solid, closure reference intact
     loop = [s for s in sec.shots if s.closure_to_id != -1]
     assert len(loop) == 1 and loop[0].shot_type.value == "REAL"

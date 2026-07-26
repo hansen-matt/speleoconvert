@@ -53,4 +53,7 @@ def test_write_and_reread(tmp_path: Path):
     assert shot.name == "L1"
     assert shot.left is None          # absent LRUD round-trips as absent
     assert shot.length == 110.0
-    assert back.sections[0].surveyors == ["Matt Hansen"]
+    # after Explorer flattening (plain text for Ariane's table), the re-read
+    # library puts the names in explorers rather than surveyors
+    team = (back.sections[0].surveyors or []) + (back.sections[0].explorers or [])
+    assert "Matt Hansen" in " ".join(team)
