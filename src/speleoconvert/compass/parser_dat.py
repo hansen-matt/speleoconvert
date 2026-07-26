@@ -34,8 +34,16 @@ def parse_dat(path: str | Path) -> CompassDatFile:
     return parse_dat_text(text, file=str(path))
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0e-\x1f]")
+
+
 def parse_dat_text(text: str, *, file: str) -> CompassDatFile:
-    text = text.rstrip("\x1a\r\n \t")
+    text = text.rstrip("\x1a\r\n \t").replace("\x1a", "")
+    if m := _CONTROL_CHARS_RE.search(text):
+        line_no = text.count("\n", 0, m.start()) + 1
+        raise ParseError(file, line_no,
+                         f"control character 0x{ord(m.group(0)):02x} in survey "
+                         "data (would corrupt the XML output)")
     surveys: list[CompassSurvey] = []
     offset = 0  # running line offset for error locations
     for block in text.split("\x0c"):
@@ -175,6 +183,14 @@ def _parse_shot(
     except ValueError as e:
         raise ParseError(file, line_no, f"non-numeric shot value: {e}") from e
     length, bearing, inc, left, up, down, right = nums[:7]
+    # The -999 missing-measurement sentinel applies to the FORESIGHT columns
+    # too (a backsight-only shot records BEARING/INC as -999.00); passing it
+    # through would silently average -999 into the output.
+    bearing_v = None if bearing <= _BACKSIGHT_SENTINEL else bearing
+    inc_v = None if inc <= _BACKSIGHT_SENTINEL else inc
+    if length < 0:
+        raise ParseError(file, line_no,
+                         f"negative shot length {length}: invalid tape reading")
     azm2 = inc2 = None
     if has_backsights:
         azm2 = None if nums[7] <= _BACKSIGHT_SENTINEL else nums[7]
@@ -194,14 +210,20 @@ def _parse_shot(
             comment = rest
 
     def lrud(v: float) -> float | None:
-        return None if v <= _LRUD_SENTINEL else v
+        if v <= _LRUD_SENTINEL:
+            return None
+        if v < 0:
+            raise ParseError(file, line_no,
+                             f"negative passage dimension {v} (not a known "
+                             "missing-value sentinel)")
+        return v
 
     return CompassShot(
         from_station=frm,
         to_station=to,
         length_ft=length,
-        bearing_deg=bearing,
-        inclination_deg=inc,
+        bearing_deg=bearing_v,
+        inclination_deg=inc_v,
         left_ft=lrud(left),
         up_ft=lrud(up),
         down_ft=lrud(down),

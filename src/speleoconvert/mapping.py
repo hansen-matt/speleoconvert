@@ -35,6 +35,8 @@ def _iso_date(raw: str) -> str | None:
     if len(parts) == 3:
         try:
             m, d, y = (int(p) for p in parts)
+            if y < 100:  # two-digit years occur in old Compass files
+                y += 2000 if y <= 30 else 1900
             if y >= 1900:
                 return date(y, m, d).isoformat()
         except ValueError:
@@ -156,6 +158,11 @@ def map_project(
                 f"{section['_survey_notes']} | {existing}" if existing
                 else section["_survey_notes"]
             )
+        elif section["_survey_notes"]:
+            report.add("survey-notes-unattached", REPORT_ONLY,
+                       section["_source_file"],
+                       f"survey {section['name']!r} has no shots; notes kept in "
+                       f"report only: {section['_survey_notes']}")
         del section["_source_file"]
         del section["_survey_notes"]
 
@@ -259,6 +266,7 @@ class _Emitter:
         self.station_shot_id: dict[str, int] = {}
         self.station_depth: dict[str, float] = {}
         self.seen_stations: set[str] = set()
+        self.anchored_stations: set[str] = set()
         self.next_id = 0
 
     def known(self, station: str) -> bool:
@@ -275,6 +283,7 @@ class _Emitter:
             lat, lon, z_ft = self.fixed[station]
             start["latitude"], start["longitude"] = lat, lon
             start["depth"] = round(self.z_ref - z_ft, 4)
+            self.anchored_stations.add(station)
             self.report.add("fixed-station", NATIVE, loc,
                             f"{station} -> ({lat:.6f}, {lon:.6f})")
         else:
@@ -337,6 +346,16 @@ class _Emitter:
                         "backsight-discrepancy", REPORT_ONLY, loc,
                         f"fore/back azimuths disagree by {disc:.1f} deg "
                         f"after convention correction",
+                    )
+            if shot.inclination_deg is not None and shot.inc2_deg is not None:
+                inc_b = (shot.inc2_deg if conv.inclination_corrected
+                         else -shot.inc2_deg)
+                if abs(shot.inclination_deg - inc_b) > DISCREPANCY_DEG:
+                    self.report.add(
+                        "backsight-discrepancy", REPORT_ONLY, loc,
+                        f"fore/back inclinations disagree by "
+                        f"{abs(shot.inclination_deg - inc_b):.1f} deg after "
+                        "convention correction",
                     )
             if shot.bearing_deg is None and shot.azm2_deg is not None:
                 self.report.add("bearing-from-backsight", REPORT_ONLY, loc,
@@ -405,5 +424,18 @@ class _Emitter:
             entry["shot_type"] = "REAL"
             self.station_shot_id[to] = self.next_id
             self.station_depth[to] = depth_to
+            if to in self.fixed and to not in self.anchored_stations:
+                # A GPS anchor reached mid-traverse: Ariane's rooted-tree model
+                # anchors one station per component, so preserve the secondary
+                # coordinate on the shot that establishes the station.
+                lat, lon, _z = self.fixed[to]
+                self.anchored_stations.add(to)
+                entry["comment"] = _append_comment(
+                    entry["comment"] or "",
+                    f"Compass fixed station {to}: WGS84 {lat:.6f}, {lon:.6f}",
+                ) or None
+                self.report.add("fixed-station-secondary", COMMENT, loc,
+                                f"{to} -> ({lat:.6f}, {lon:.6f}) preserved in "
+                                "shot comment (component already anchored)")
         section["shots"].append(entry)
         self.next_id += 1

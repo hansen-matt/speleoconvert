@@ -50,20 +50,29 @@ def _convert(args: argparse.Namespace) -> int:
         project = load_project(args.mak)
         survey_dict = map_project(project, strict=args.strict, report=report)
         write_tml(survey_dict, out)
-    except (ParseError, GeodesyError, StrictModeError, FileNotFoundError, OSError) as e:
+    except (ParseError, GeodesyError, StrictModeError, FileNotFoundError,
+            OSError, ValueError) as e:
+        # ValueError also covers pydantic ValidationError from the writer
         print(f"error: {e}", file=sys.stderr)
         return 1
 
     # Every conversion self-audits: the written file is independently re-read
-    # and reconciled shot-by-shot against the Compass source.
+    # and reconciled shot-by-shot against the Compass source, then validated
+    # against the de-facto Ariane format. The report is written regardless,
+    # so failed runs keep their audit trail.
+    from speleoconvert.conformance import validate_tml
+
     problems = reconcile(project, out)
+    problems += [f"format conformance: {p}" for p in validate_tml(out)]
     if problems:
         for p in problems[:20]:
-            print(f"RECONCILIATION FAILURE: {p}", file=sys.stderr)
+            print(f"VERIFICATION FAILURE: {p}", file=sys.stderr)
         if len(problems) > 20:
             print(f"... and {len(problems) - 20} more", file=sys.stderr)
-        print(f"error: output failed reconciliation against the source; "
-              f"{out} must not be trusted", file=sys.stderr)
+        report_path.write_text(report.to_json())
+        print(f"error: output failed verification against the source; "
+              f"{out} must not be trusted (audit trail in {report_path})",
+              file=sys.stderr)
         return 1
 
     report_path.write_text(report.to_json())

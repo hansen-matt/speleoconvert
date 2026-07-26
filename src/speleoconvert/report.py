@@ -45,6 +45,9 @@ STRICT_EXEMPT_CATEGORIES = {
     # the FORMAT string is data-entry display metadata; values are already
     # normalized to feet/degrees on disk.
     "survey-format",
+    # Ariane's rooted-tree model anchors one station per connected component;
+    # secondary GPS anchors are preserved verbatim in the shot comment.
+    "fixed-station-secondary",
     # cave name != survey name is the normal Compass file structure; the name is
     # still preserved in the section comment, so strict mode must not reject it.
     "survey-cave-name",

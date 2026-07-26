@@ -121,11 +121,11 @@ def test_excluded_flag_native():
 def test_unparseable_date_goes_to_first_shot_comment():
     prj = _project([_shot("E", "S1")])
     survey = prj.dat_files[0].surveys[0]
-    object.__setattr__(survey, "date_raw", "1 1 1")  # frozen; test-only poke
+    object.__setattr__(survey, "date_raw", "13 45 2020")  # invalid month/day
     r = ConversionReport("s", "o")
     d = map_project(prj, report=r)
     sec = d["sections"][0]
     assert sec["date"] is None
     # survey-level notes ride the section's first shot (section fields must
     # stay plain for Ariane's data table)
-    assert "1 1 1" in sec["shots"][0]["comment"]
+    assert "13 45 2020" in sec["shots"][0]["comment"]
