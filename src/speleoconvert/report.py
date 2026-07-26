@@ -32,6 +32,11 @@ STRICT_EXEMPT_CATEGORIES = {
     # the Compass editor's all-zero "From Station  To Station" template row is
     # not survey data; skipping it loses nothing.
     "placeholder-shot",
+    # backsight averaging is what Compass itself does at compile time; the raw
+    # readings are preserved in the shot comment and the report.
+    "backsight-averaged",
+    "backsight-discrepancy",
+    "bearing-from-backsight",
     # cave name != survey name is the normal Compass file structure; the name is
     # still preserved in the section comment, so strict mode must not reject it.
     "survey-cave-name",

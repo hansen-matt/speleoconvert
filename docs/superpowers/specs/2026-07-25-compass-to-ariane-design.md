@@ -95,7 +95,7 @@ LRUD, `excluded`, per-shot `latitude`/`longitude`).
 | LRUD | `Shot.left/right/up/down` | Absent (`-9.9` sentinel) → `None`, which serializes as an empty TML element (`<Left/>`) and round-trips as absent (verified against openspeleo-lib 0.0.18). Occurrences counted in the report; never a strict-mode error. |
 | flag `X` | `Shot.excluded` | native |
 | flags `L`, `P`, `C` | comment + report (lenient) / error (strict) | no native slot |
-| backsights | comment + report (lenient) / error (strict) | Ariane stores one az/inc per shot |
+| backsights | averaged into `Shot.azimuth`/`inclination` (Compass-compile equivalent); raw readings preserved in comment + report | convention (raw vs pre-corrected) detected empirically per survey from the median fore/back angular difference; fore/back disagreements > 5° reported (`backsight-discrepancy`); missing foresight recovered from backsight |
 | fixed stations | `Shot.latitude/longitude` + survey `GeoLocation`, start elevation | after datum shift |
 | lengths in feet | `unit = FT` | TML supports feet natively — **no unit conversion** |
 
