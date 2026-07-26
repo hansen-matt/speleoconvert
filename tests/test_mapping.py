@@ -63,14 +63,17 @@ def test_basic_chain_and_ids():
     assert d["unit"] == "FT"
 
 
-def test_loop_becomes_closure():
+def test_loop_shot_stays_real_with_closure_ref():
     prj = _project([
         _shot("E", "A"), _shot("A", "B"), _shot("B", "E"),  # loop back to E
     ])
     d = map_project(prj, report=ConversionReport("s", "o"))
     last = d["sections"][0]["shots"][-1]
-    assert last["shot_type"] == "CLOSURE"
+    # REAL so Ariane draws it as solid passage (CLOSURE renders dashed/excluded);
+    # the tie is still encoded via closure_to_id and the duplicate station name.
+    assert last["shot_type"] == "REAL"
     assert last["closure_to_id"] == 0  # E is the START shot, id 0
+    assert last["name"] == "E"
 
 
 def test_fixed_station_gets_latlon():
