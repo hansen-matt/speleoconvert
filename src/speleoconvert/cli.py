@@ -1,17 +1,62 @@
 from __future__ import annotations
 
+import argparse
 import sys
+from pathlib import Path
 
 from speleoconvert import __version__
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
-    if "--version" in argv:
-        print(f"speleoconvert {__version__}")
-        return 0
-    print("usage: speleoconvert convert <project.mak> [options]", file=sys.stderr)
-    return 2
+    parser = argparse.ArgumentParser(
+        prog="speleoconvert",
+        description="Lossless Fountainware Compass -> Ariane's Line converter",
+    )
+    parser.add_argument("--version", action="version", version=f"speleoconvert {__version__}")
+    sub = parser.add_subparsers(dest="command")
+    conv = sub.add_parser("convert", help="convert a Compass project (.mak) to .tml")
+    conv.add_argument("mak", type=Path, help="Compass project file (.mak)")
+    conv.add_argument("-o", "--output", type=Path, default=None, help=".tml output path")
+    conv.add_argument("--strict", action="store_true",
+                      help="error on any field without a native Ariane equivalent")
+    conv.add_argument("--report", type=Path, default=None,
+                      help="report path (default: <output>.report.json)")
+    conv.add_argument("-q", "--quiet", action="store_true", help="suppress summary")
+
+    try:
+        args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    except SystemExit as e:
+        return int(e.code or 0)
+    if args.command != "convert":
+        parser.print_usage(sys.stderr)
+        return 2
+    return _convert(args)
+
+
+def _convert(args: argparse.Namespace) -> int:
+    # imports deferred so `--version`/usage never require heavy deps
+    from speleoconvert.ariane_writer import write_tml
+    from speleoconvert.compass.model import ParseError
+    from speleoconvert.compass.parser_mak import load_project
+    from speleoconvert.geodesy import GeodesyError
+    from speleoconvert.mapping import map_project
+    from speleoconvert.report import ConversionReport, StrictModeError
+
+    out = args.output or args.mak.with_suffix(".tml")
+    report_path = args.report or Path(f"{out}.report.json")
+    report = ConversionReport(source=str(args.mak), output=str(out))
+    try:
+        project = load_project(args.mak)
+        survey_dict = map_project(project, strict=args.strict, report=report)
+        write_tml(survey_dict, out)
+    except (ParseError, GeodesyError, StrictModeError, FileNotFoundError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    report_path.write_text(report.to_json())
+    if not args.quiet:
+        print(report.summary_text())
+        print(f"wrote {out}")
+    return 0
 
 
 def entrypoint() -> None:
