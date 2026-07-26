@@ -179,6 +179,33 @@ def _build_section(survey: CompassSurvey, report: ConversionReport) -> dict:
         report.add("placeholder-shot", REPORT_ONLY, f"{loc}:{line_no}",
                    "Compass editor placeholder row skipped (all-zero template)")
 
+    # The Ariane TML format has NO fields for declination, instrument
+    # corrections, or the Compass format string (Ariane derives declination
+    # from section date + survey location). The writer library's Section model
+    # carries them but its encoder drops them, so embed them in the comment.
+    meta_bits = [f"declination {survey.declination_deg}",
+                 f"format {survey.format.raw}"]
+    if survey.declination_deg != 0.0:
+        report.add("survey-declination", COMMENT, loc,
+                   f"declination {survey.declination_deg} kept in comment; "
+                   "Ariane derives declination from date+location")
+    elif _iso_date(survey.date_raw):
+        report.add("declination-zero", REPORT_ONLY, loc,
+                   "DECLINATION 0.00 with a real date: Compass applied no "
+                   "correction but Ariane will auto-compute one; bearings will "
+                   "render rotated vs Compass")
+    if survey.corrections and any(survey.corrections):
+        meta_bits.append("corrections " + " ".join(str(c) for c in survey.corrections))
+        report.add("survey-corrections", COMMENT, loc,
+                   f"nonzero instrument corrections {survey.corrections} have no "
+                   "Ariane equivalent (kept in comment, never applied)")
+    if survey.corrections2 and any(survey.corrections2):
+        meta_bits.append("corrections2 " + " ".join(str(c) for c in survey.corrections2))
+        report.add("survey-corrections", COMMENT, loc,
+                   f"nonzero backsight corrections {survey.corrections2} have no "
+                   "Ariane equivalent (kept in comment, never applied)")
+    comment = _append_comment(comment, "Compass: " + ", ".join(meta_bits))
+
     return {
         "name": survey.name,
         "survey": None,
@@ -189,7 +216,11 @@ def _build_section(survey: CompassSurvey, report: ConversionReport) -> dict:
         "compass_format": survey.format.raw,
         "correction": list(survey.corrections or (0.0, 0.0, 0.0)),
         "correction2": list(survey.corrections2 or (0.0, 0.0)),
+        # TML round-trips only `description` at section level (embedded as
+        # <SectionDescription> inside the shot Section field); `comment` and
+        # the fields above are dropped by the format. Keep both populated.
         "comment": comment or None,
+        "description": comment or None,
         "shots": [],
         "_source_file": loc,
     }
