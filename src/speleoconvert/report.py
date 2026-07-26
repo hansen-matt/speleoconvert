@@ -25,6 +25,10 @@ STRICT_EXEMPT_CATEGORIES = {
     # a survey component with no fixed station has no defined absolute position
     # in Compass either; we anchor it at the base location and note it.
     "component-unfixed",
+    # chain reversal is REQUIRED by Ariane's rooted-tree model whenever a chain
+    # was surveyed toward its tie-in; it is geometry-preserving and the original
+    # direction is recorded in the shot comment.
+    "shot-reversed",
     # cave name != survey name is the normal Compass file structure; the name is
     # still preserved in the section comment, so strict mode must not reject it.
     "survey-cave-name",
