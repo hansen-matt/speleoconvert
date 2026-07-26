@@ -40,6 +40,7 @@ def _convert(args: argparse.Namespace) -> int:
     from speleoconvert.compass.parser_mak import load_project
     from speleoconvert.geodesy import GeodesyError
     from speleoconvert.mapping import map_project
+    from speleoconvert.reconcile import reconcile
     from speleoconvert.report import ConversionReport, StrictModeError
 
     out = args.output or args.mak.with_suffix(".tml")
@@ -52,9 +53,24 @@ def _convert(args: argparse.Namespace) -> int:
     except (ParseError, GeodesyError, StrictModeError, FileNotFoundError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+
+    # Every conversion self-audits: the written file is independently re-read
+    # and reconciled shot-by-shot against the Compass source.
+    problems = reconcile(project, out)
+    if problems:
+        for p in problems[:20]:
+            print(f"RECONCILIATION FAILURE: {p}", file=sys.stderr)
+        if len(problems) > 20:
+            print(f"... and {len(problems) - 20} more", file=sys.stderr)
+        print(f"error: output failed reconciliation against the source; "
+              f"{out} must not be trusted", file=sys.stderr)
+        return 1
+
     report_path.write_text(report.to_json())
     if not args.quiet:
         print(report.summary_text())
+        n = sum(len(s.shots) for d in project.dat_files for s in d.surveys)
+        print(f"reconciliation: OK ({n} shots verified against the source)")
         print(f"wrote {out}")
     return 0
 

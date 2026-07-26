@@ -91,3 +91,17 @@ def test_geometry_vs_plt(mak: Path):
     # the .DAT), so small percent-of-extent differences are expected.
     tolerance = max(50.0, 0.015 * stats["extent_ft"])
     assert stats["p95_err_ft"] < tolerance, stats
+
+
+@pytest.mark.parametrize("mak", _maks(), ids=lambda p: p.parent.name + "/" + p.name)
+def test_reconcile_full_corpus(mak: Path, tmp_path: Path):
+    """Every shot of every real project must survive conversion intact."""
+    from speleoconvert.reconcile import reconcile
+
+    project = load_project(mak)
+    report = ConversionReport(str(mak), "out.tml")
+    survey_dict = map_project(project, strict=False, report=report)
+    out = tmp_path / "out.tml"
+    write_tml(survey_dict, out)
+    problems = reconcile(project, out)
+    assert problems == [], "\n".join(problems[:30])
