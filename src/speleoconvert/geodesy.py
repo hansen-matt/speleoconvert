@@ -40,3 +40,11 @@ def fixed_station_to_wgs84(
     x_m, y_m, z_m = fs.x * scale, fs.y * scale, fs.z * scale
     lon, lat = _transformer(datum, zone).transform(x_m, y_m)
     return lat, lon, z_m
+
+
+def utm_to_wgs84(
+    easting_m: float, northing_m: float, zone: int, datum: str
+) -> tuple[float, float]:
+    """UTM meters -> (lat, lon). Used for the .mak base location."""
+    lon, lat = _transformer(datum, zone).transform(easting_m, northing_m)
+    return lat, lon

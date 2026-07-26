@@ -22,6 +22,9 @@ STRICT_EXEMPT_CATEGORIES = {
     # link stations are plain references to stations that exist in the shot
     # data; nothing is lost by not re-declaring them.
     "mak-link-station",
+    # a survey component with no fixed station has no defined absolute position
+    # in Compass either; we anchor it at the base location and note it.
+    "component-unfixed",
     # cave name != survey name is the normal Compass file structure; the name is
     # still preserved in the section comment, so strict mode must not reject it.
     "survey-cave-name",
