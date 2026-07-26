@@ -85,7 +85,8 @@ def test_tail_tie_chain_is_reversed():
     assert by_name["S1"]["id_start"] == by_name["S2"]["id_stop"]
     assert by_name["S2"]["azimuth"] == pytest.approx(200.0)   # 20 + 180
     assert by_name["S2"]["inclination"] == pytest.approx(3.0)  # negated
-    assert "Reversed from Compass" in by_name["S2"]["comment"]
+    # reversal is report-only: no comment clutter in Ariane's data table
+    assert not (by_name["S2"]["comment"] or "")
     assert any(e.category == "shot-reversed" for e in r.non_native())
     # no spurious START besides the anchor
     assert [s["name"] for s in shots if s["shot_type"] == "START"] == ["A"]

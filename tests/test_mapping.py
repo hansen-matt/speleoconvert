@@ -1,4 +1,3 @@
-import math
 
 import pytest
 
@@ -27,10 +26,10 @@ def _shot(frm, to, length=10.0, bearing=90.0, inc=0.0, **kw):
     return CompassShot(frm, to, length, bearing, inc, **defaults)
 
 
-def _project(shots, fixed=(), datum="WGS 1984",
+def _project(shots, fixed=(), datum="WGS 1984", comment="",
              corrections=(0.0, 0.0, 0.0), corrections2=(0.0, 0.0)):
     survey = CompassSurvey(
-        cave_name="cave", name="A", date_raw="2 23 2024", comment="hi",
+        cave_name="cave", name="A", date_raw="2 23 2024", comment=comment,
         team=("Matt",), declination_deg=-6.13, format=FMT,
         corrections=tuple(corrections), corrections2=tuple(corrections2),
         discovery_raw=None, has_backsight_columns=False,
@@ -55,7 +54,8 @@ def test_basic_chain_and_ids():
     start, s1, s2 = sec["shots"]
     assert start["name"] == "E" and start["id_stop"] == 0
     assert s1["id_start"] == 0 and s1["id_stop"] == 1 and s1["name"] == "S1"
-    assert s1["depth"] == pytest.approx(10.0 * math.sin(math.radians(45.0)), abs=1e-3)
+    # 10*sin(45) = 7.07 -> emitted depths round to the nearest half foot
+    assert s1["depth"] == pytest.approx(7.0)
     assert s2["depth_start"] == s1["depth"]
     assert sec["declination"] == -6.13
     assert sec["correction"] == [0.0, 0.0, 0.0]
@@ -118,7 +118,7 @@ def test_excluded_flag_native():
     assert d["sections"][0]["shots"][1]["excluded"] is True
 
 
-def test_unparseable_date_goes_to_comment():
+def test_unparseable_date_goes_to_first_shot_comment():
     prj = _project([_shot("E", "S1")])
     survey = prj.dat_files[0].surveys[0]
     object.__setattr__(survey, "date_raw", "1 1 1")  # frozen; test-only poke
@@ -126,4 +126,6 @@ def test_unparseable_date_goes_to_comment():
     d = map_project(prj, report=r)
     sec = d["sections"][0]
     assert sec["date"] is None
-    assert "1 1 1" in sec["comment"]
+    # survey-level notes ride the section's first shot (section fields must
+    # stay plain for Ariane's data table)
+    assert "1 1 1" in sec["shots"][0]["comment"]
