@@ -2,8 +2,14 @@
 name = "speleoconvert"
 version = "0.1.0"
 description = "Lossless Fountainware Compass to Ariane's Line survey converter"
+readme = "README.md"
+license = {text = "AGPL-3.0-or-later"}
+authors = [{name = "Matt Hansen"}]
 requires-python = ">=3.11"
 dependencies = ["openspeleo-lib>=0.0.18", "pyproj>=3.6"]
+
+[project.urls]
+Repository = "https://github.com/hansen-matt/speleoconvert"
 
 [project.scripts]
 speleoconvert = "speleoconvert.cli:entrypoint"

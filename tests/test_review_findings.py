@@ -262,3 +262,98 @@ def test_self_loop_180_corruption_detected(tmp_path):
     with zipfile.ZipFile(out, "w") as z:
         z.writestr("Data.xml", xml)
     assert any("azimuth" in p for p in reconcile(prj, out))
+
+
+# --- round 3: audit-power and wall-orientation fixes ---------------------------
+
+def test_reversed_shots_swap_left_right_walls(tmp_path):
+    from speleoconvert.compass.model import FixedStation as FS
+    fixed = [FS("A", "f", 933560.866, 11070112.205, 0.0, raw="")]
+    # surveyed toward the tie-in: S1 -> A gets emitted reversed as A -> S1
+    prj = _project([_shot("S1", "A", left_ft=3.0, right_ft=4.0,
+                          up_ft=1.0, down_ft=2.0)], fixed=fixed)
+    d = map_project(prj, report=ConversionReport("s", "o"))
+    shots = {s["name"]: s for sec in d["sections"] for s in sec["shots"]}
+    rev = shots["S1"]
+    assert rev["left"] == 4.0 and rev["right"] == 3.0   # swapped
+    assert rev["up"] == 1.0 and rev["down"] == 2.0      # unchanged
+    out = tmp_path / "o.tml"
+    write_tml(d, out)
+    assert reconcile(prj, out) == []
+
+
+def test_reconcile_catches_corrupted_backsight_averaging(tmp_path, monkeypatch):
+    # simulate a transform-layer regression in the SHARED averaging helper:
+    # the independent inline recomputation must catch what the primary
+    # (helper-mirroring) checks cannot
+    import speleoconvert.compass.backsights as bs
+    real = bs.average_azimuth
+
+    def corrupted(fore, back, *, corrected):
+        return (real(fore, back, corrected=corrected) + 170.0) % 360.0
+
+    prj_rows = ["A1 A2 10.00 40.00 5.00 1.00 1.00 1.00 1.00 221.00 -5.40",
+                "A2 A3 12.00 90.00 0.00 1.00 1.00 1.00 1.00 270.50 0.00"]
+    (tmp_path / "b.dat").write_bytes(_bs_dat(prj_rows).encode("cp437"))
+    (tmp_path / "b.mak").write_bytes(b"#b.dat;\r\n")
+    from speleoconvert.compass.parser_mak import load_project
+    prj = load_project(tmp_path / "b.mak")
+    monkeypatch.setattr(bs, "average_azimuth", corrupted)
+    d = map_project(prj, report=ConversionReport("s", "o"))
+    out = tmp_path / "b.tml"
+    write_tml(d, out)
+    problems = reconcile(prj, out)
+    assert any("independent fore/back midpoint" in p for p in problems)
+
+
+def test_reconcile_catches_corrupted_inclination_averaging(tmp_path, monkeypatch):
+    import speleoconvert.compass.backsights as bs
+    monkeypatch.setattr(bs, "average_inclination",
+                        lambda fore, back, *, corrected: -(
+                            (fore + (back if corrected else -back)) / 2.0))
+    rows = ["A1 A2 10.00 40.00 25.00 1.00 1.00 1.00 1.00 220.50 -24.60"]
+    (tmp_path / "i.dat").write_bytes(_bs_dat(rows).encode("cp437"))
+    (tmp_path / "i.mak").write_bytes(b"#i.dat;\r\n")
+    from speleoconvert.compass.parser_mak import load_project
+    prj = load_project(tmp_path / "i.mak")
+    d = map_project(prj, report=ConversionReport("s", "o"))
+    out = tmp_path / "i.tml"
+    write_tml(d, out)
+    assert any("independent fore/back mean" in p for p in reconcile(prj, out))
+
+
+def test_cli_rejects_report_path_equal_to_output(tmp_path):
+    (tmp_path / "x.dat").write_bytes(
+        b"c\r\nSURVEY NAME: A\r\nSURVEY DATE: 1 1 2020  COMMENT:\r\n"
+        b"SURVEY TEAM: \r\n\r\nDECLINATION: 0.00  FORMAT: DDDDUDRLLADN\r\n\r\n"
+        b"FROM TO LENGTH BEARING INC LEFT UP DOWN RIGHT FLAGS COMMENTS\r\n\r\n"
+        b"A1 A2 10.00 90.00 0.00 1.00 1.00 1.00 1.00\r\n")
+    (tmp_path / "x.mak").write_bytes(b"#x.dat;\r\n")
+    out = tmp_path / "x.tml"
+    assert main(["convert", str(tmp_path / "x.mak"),
+                 "-o", str(out), "--report", str(out)]) == 2
+    assert not out.exists()
+
+
+def test_cli_rejects_non_tml_output_suffix(tmp_path):
+    (tmp_path / "y.mak").write_bytes(b"#y.dat;\r\n")
+    assert main(["convert", str(tmp_path / "y.mak"),
+                 "-o", str(tmp_path / "y.mak")]) == 2
+
+
+def test_datum_aliases():
+    from speleoconvert.geodesy import fixed_station_to_wgs84
+    fs = FixedStation("A", "f", 933560.866, 11070112.205, 0.0, raw="")
+    ref = fixed_station_to_wgs84(fs, 17, "WGS 1984")
+    for alias in ("WGS84", "wgs 1984", "NAD27", "North American 1927"):
+        lat, lon, _ = fixed_station_to_wgs84(fs, 17, alias)
+        assert abs(lat - ref[0]) < 0.01  # NAD27 differs slightly; same ballpark
+
+
+def test_unconvertible_base_location_is_reported():
+    prj = _project([_shot("X1", "X2")], datum="Tokyo Datum")
+    object.__setattr__(prj, "base_easting_m", 284551.1)
+    object.__setattr__(prj, "base_northing_m", 3373992.3)
+    r = ConversionReport("s", "o")
+    map_project(prj, report=r)
+    assert any(e.category == "mak-base-unconvertible" for e in r.entries)
