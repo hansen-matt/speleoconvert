@@ -62,16 +62,20 @@ def _parse_survey(lines: list[str], *, file: str, line_offset: int) -> CompassSu
     def ln(i: int) -> int:  # 1-based file line number
         return line_offset + i + 1
 
-    cave_name = _get(lines, 0, file, line_offset, "cave name").strip()
+    # The cave-name line may be blank or absent; anchor on the SURVEY NAME line
+    # instead of assuming a fixed position (seen in real files, e.g. Region_4.DAT).
+    name_idx = next(
+        (i for i, line in enumerate(lines[:4]) if "SURVEY NAME:" in line), None
+    )
+    if name_idx is None:
+        raise ParseError(file, ln(0), f"no SURVEY NAME line near {lines[0]!r}")
+    cave_name = lines[name_idx - 1].strip() if name_idx >= 1 else ""
+    name = lines[name_idx].split("SURVEY NAME:", 1)[1].strip()
+    base = name_idx  # header lines are positioned relative to SURVEY NAME
 
-    name_line = _get(lines, 1, file, line_offset, "SURVEY NAME")
-    if "SURVEY NAME:" not in name_line:
-        raise ParseError(file, ln(1), f"expected SURVEY NAME, got {name_line!r}")
-    name = name_line.split("SURVEY NAME:", 1)[1].strip()
-
-    date_line = _get(lines, 2, file, line_offset, "SURVEY DATE")
+    date_line = _get(lines, base + 1, file, line_offset, "SURVEY DATE")
     if "SURVEY DATE:" not in date_line:
-        raise ParseError(file, ln(2), f"expected SURVEY DATE, got {date_line!r}")
+        raise ParseError(file, ln(base + 1), f"expected SURVEY DATE, got {date_line!r}")
     date_part = date_line.split("SURVEY DATE:", 1)[1]
     if "COMMENT:" in date_part:
         date_raw, comment = date_part.split("COMMENT:", 1)
@@ -79,19 +83,19 @@ def _parse_survey(lines: list[str], *, file: str, line_offset: int) -> CompassSu
         date_raw, comment = date_part, ""
     date_raw, comment = date_raw.strip(), comment.strip()
 
-    team_hdr = _get(lines, 3, file, line_offset, "SURVEY TEAM")
+    team_hdr = _get(lines, base + 2, file, line_offset, "SURVEY TEAM")
     if "SURVEY TEAM:" not in team_hdr:
-        raise ParseError(file, ln(3), f"expected SURVEY TEAM, got {team_hdr!r}")
-    team_line = _get(lines, 4, file, line_offset, "team names").strip()
+        raise ParseError(file, ln(base + 2), f"expected SURVEY TEAM, got {team_hdr!r}")
+    team_line = _get(lines, base + 3, file, line_offset, "team names").strip()
     team: tuple[str, ...] = ()
     if team_line and team_line != "?":
         team = tuple(t.strip() for t in team_line.split(",") if t.strip())
 
-    decl_line = _get(lines, 5, file, line_offset, "DECLINATION")
+    decl_line = _get(lines, base + 4, file, line_offset, "DECLINATION")
     m = _DECL_RE.search(decl_line)
     if not m:
-        raise ParseError(file, ln(5), f"cannot parse DECLINATION line: {decl_line!r}")
-    fmt = FormatSpec.parse(m["fmt"], file=file, line_no=ln(5))
+        raise ParseError(file, ln(base + 4), f"cannot parse DECLINATION line: {decl_line!r}")
+    fmt = FormatSpec.parse(m["fmt"], file=file, line_no=ln(base + 4))
     corrections = None
     if m["c1"] is not None:
         corrections = (float(m["c1"]), float(m["c2"]), float(m["c3"]))
@@ -101,12 +105,12 @@ def _parse_survey(lines: list[str], *, file: str, line_offset: int) -> CompassSu
 
     # find column header row
     hdr_idx = None
-    for i in range(6, len(lines)):
+    for i in range(base + 5, len(lines)):
         if "FROM" in lines[i] and "TO" in lines[i] and "LENGTH" in lines[i]:
             hdr_idx = i
             break
     if hdr_idx is None:
-        raise ParseError(file, ln(6), "missing shot column header row")
+        raise ParseError(file, ln(base + 5), "missing shot column header row")
     cols = lines[hdr_idx].split()
     has_backsights = "AZM2" in cols
     expected = _HEADER_BASE + (["AZM2", "INC2"] if has_backsights else [])

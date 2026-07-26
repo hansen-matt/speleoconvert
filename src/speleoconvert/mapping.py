@@ -39,7 +39,15 @@ def map_project(
     fixed: dict[str, tuple[float, float, float]] = {}
     for link in project.links:
         for fs in link.fixed_stations:
-            fixed[fs.name] = fixed_station_to_wgs84(fs, link.utm_zone, link.datum)
+            if link.datum is not None and link.utm_zone is not None:
+                fixed[fs.name] = fixed_station_to_wgs84(fs, link.utm_zone, link.datum)
+            else:
+                report.add("fixed-station-no-datum", COMMENT, project.mak_path,
+                           f"fixed station {fs.raw!r} has no datum/zone; "
+                           "cannot geo-reference")
+        for name in link.link_stations:
+            report.add("mak-link-station", REPORT_ONLY, project.mak_path,
+                       f"link station {name!r} (no coordinates in .mak)")
         for param in link.raw_params:
             report.add("mak-unknown-param", REPORT_ONLY, project.mak_path, param)
     if project.flags_raw:
@@ -47,8 +55,9 @@ def map_project(
                    f"!{project.flags_raw};")
     for c in project.comments:
         report.add("mak-comment", REPORT_ONLY, project.mak_path, c)
-    report.add("mak-convergence", REPORT_ONLY, project.mak_path,
-               f"convergence={project.convergence_deg}")
+    if project.convergence_deg is not None:
+        report.add("mak-convergence", REPORT_ONLY, project.mak_path,
+                   f"convergence={project.convergence_deg}")
 
     z_ref = next(iter(fixed.values()))[2] if fixed else 0.0
 

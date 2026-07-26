@@ -131,21 +131,22 @@ class FixedStation:
 @dataclass(frozen=True)
 class DatLink:
     path: str
-    datum: str
-    utm_zone: int
+    datum: str | None
+    utm_zone: int | None
     fixed_stations: tuple[FixedStation, ...] = ()
+    link_stations: tuple[str, ...] = ()  # bare station names, no coordinates
     raw_params: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class CompassProject:
     mak_path: str
-    base_easting_m: float
-    base_northing_m: float
-    base_elevation_m: float
-    base_zone: int
-    convergence_deg: float
-    datum: str
+    base_easting_m: float | None
+    base_northing_m: float | None
+    base_elevation_m: float | None
+    base_zone: int | None
+    convergence_deg: float | None
+    datum: str | None
     flags_raw: str | None
     comments: tuple[str, ...]
     links: tuple[DatLink, ...]

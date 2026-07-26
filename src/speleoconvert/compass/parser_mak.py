@@ -20,6 +20,25 @@ _STATION_RE = re.compile(
 )
 
 
+def _split_station_entries(rest: str) -> list[str]:
+    """Split a link's station list on commas that are outside [brackets]."""
+    entries: list[str] = []
+    depth, cur = 0, ""
+    for ch in rest:
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            entries.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        entries.append(cur)
+    return entries
+
+
 def parse_mak(path: str | Path) -> CompassProject:
     path = Path(path)
     try:
@@ -79,42 +98,40 @@ def parse_mak(path: str | Path) -> CompassProject:
                 flags_raw = body.strip()
             else:
                 pending_params.append(stmt)
-        elif head == "*":
+        elif head in ("*", "%"):
             pending_params.append(stmt)
         elif head == "#":
             fname, _, rest = body.partition(",")
-            stations = []
+            stations: list[FixedStation] = []
+            link_stations: list[str] = []
             if rest.strip():
-                pos = 0
-                while pos < len(rest):
-                    m = _STATION_RE.match(rest, pos)
-                    if not m:
+                for entry in _split_station_entries(rest):
+                    m = _STATION_RE.fullmatch(entry)
+                    if m:
+                        stations.append(
+                            FixedStation(
+                                name=m["name"].strip(),
+                                unit=m["unit"].lower(),
+                                x=float(m["x"]),
+                                y=float(m["y"]),
+                                z=float(m["z"]),
+                                raw=entry.strip(),
+                            )
+                        )
+                    elif entry.strip() and "[" not in entry:
+                        # bare station name: a link station without coordinates
+                        link_stations.append(entry.strip())
+                    else:
                         raise ParseError(
-                            str(path), line_no, f"bad fixed station near {rest[pos:pos+40]!r}"
+                            str(path), line_no, f"bad fixed station near {entry[:40]!r}"
                         )
-                    stations.append(
-                        FixedStation(
-                            name=m["name"].strip(),
-                            unit=m["unit"].lower(),
-                            x=float(m["x"]),
-                            y=float(m["y"]),
-                            z=float(m["z"]),
-                            raw=m.group(0).strip().rstrip(","),
-                        )
-                    )
-                    pos = m.end()
-                    if pos < len(rest) and rest[pos] == ",":
-                        pos += 1
-            if cur_datum is None or cur_zone is None:
-                raise ParseError(
-                    str(path), line_no, f"link {fname.strip()!r} before datum/zone declared"
-                )
             links.append(
                 DatLink(
                     path=fname.strip(),
                     datum=cur_datum,
                     utm_zone=cur_zone,
                     fixed_stations=tuple(stations),
+                    link_stations=tuple(link_stations),
                     raw_params=tuple(pending_params),
                 )
             )
@@ -122,20 +139,16 @@ def parse_mak(path: str | Path) -> CompassProject:
         else:
             raise ParseError(str(path), line_no, f"unknown .mak directive: {stmt!r}")
 
-    if base is None:
-        raise ParseError(str(path), 0, "missing @ base location")
-    if file_datum is None:
-        raise ParseError(str(path), 0, "missing & datum")
     if not links:
         raise ParseError(str(path), 0, "no #linked .dat files")
 
     return CompassProject(
         mak_path=str(path),
-        base_easting_m=base[0],
-        base_northing_m=base[1],
-        base_elevation_m=base[2],
-        base_zone=base[3],
-        convergence_deg=base[4],
+        base_easting_m=base[0] if base else None,
+        base_northing_m=base[1] if base else None,
+        base_elevation_m=base[2] if base else None,
+        base_zone=base[3] if base else None,
+        convergence_deg=base[4] if base else None,
         datum=file_datum,
         flags_raw=flags_raw,
         comments=tuple(comments),

@@ -19,6 +19,9 @@ STRICT_EXEMPT_CATEGORIES = {
     "mak-convergence",
     "format-display-order",
     "lrud-missing",
+    # link stations are plain references to stations that exist in the shot
+    # data; nothing is lost by not re-declaring them.
+    "mak-link-station",
     # cave name != survey name is the normal Compass file structure; the name is
     # still preserved in the section comment, so strict mode must not reject it.
     "survey-cave-name",

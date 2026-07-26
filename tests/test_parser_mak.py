@@ -51,7 +51,25 @@ def test_parse_mak_base_and_links(tmp_path):
 
 def test_unknown_directive_is_error(tmp_path):
     with pytest.raises(ParseError):
-        parse_mak(_write(tmp_path, MAK + "%bogus;\r\n"))
+        parse_mak(_write(tmp_path, MAK + "^bogus;\r\n"))
+
+
+def test_minimal_mak_without_base_datum_zone(tmp_path):
+    prj = parse_mak(_write(tmp_path, "/just a comment\r\n#M2B.DAT;\r\n\x1a"))
+    assert prj.base_easting_m is None
+    assert prj.datum is None
+    assert prj.links[0].path == "M2B.DAT"
+    assert prj.links[0].datum is None and prj.links[0].utm_zone is None
+
+
+def test_percent_param_and_bare_link_stations(tmp_path):
+    text = MAK + "%0.00;\r\n#Extra.DAT,\r\n AgData17, 0[m,294496.5,3334364.16,0.0];\r\n"
+    prj = parse_mak(_write(tmp_path, text))
+    extra = prj.links[-1]
+    assert extra.path == "Extra.DAT"
+    assert extra.link_stations == ("AgData17",)
+    assert [f.name for f in extra.fixed_stations] == ["0"]
+    assert extra.raw_params == ("%0.00",)
 
 
 def test_load_project_resolves_case_insensitive(tmp_path):
