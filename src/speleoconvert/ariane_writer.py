@@ -14,6 +14,17 @@ from openspeleo_lib.interfaces.ariane.interface import ArianeInterface, ArianeSu
 # a bare string). Flatten it after writing.
 _EXPLORER_RE = re.compile(r"<Explorer>&lt;Surveyor&gt;(.*?)&lt;/Surveyor&gt;</Explorer>")
 
+# Names inside the Explorer wrapper are escaped twice upstream (once by the
+# embedded-fragment serializer, once by the XML writer), so "A & B" arrives as
+# "A &amp;amp; B" and Ariane would display "A &amp; B". Collapse exactly one
+# escaping level for recognized entities; everything else is left untouched.
+_DOUBLE_ESCAPE_RE = re.compile(r"&amp;(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);")
+
+
+def _flatten_explorer(match: re.Match) -> str:
+    names = _DOUBLE_ESCAPE_RE.sub(r"&\1;", match.group(1))
+    return f"<Explorer>{names}</Explorer>"
+
 
 def write_tml(survey_dict: dict, out_path: Path) -> None:
     out_path = Path(out_path)
@@ -23,7 +34,7 @@ def write_tml(survey_dict: dict, out_path: Path) -> None:
 
     with zipfile.ZipFile(out_path) as z:
         xml = z.read("Data.xml").decode()
-    flattened = _EXPLORER_RE.sub(r"<Explorer>\1</Explorer>", xml)
+    flattened = _EXPLORER_RE.sub(_flatten_explorer, xml)
     if flattened != xml:
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
             z.writestr("Data.xml", flattened)

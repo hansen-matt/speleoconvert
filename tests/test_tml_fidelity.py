@@ -128,3 +128,18 @@ def test_zero_declination_with_real_date_is_flagged():
     r = ConversionReport("s", "o")
     map_project(prj, report=r)
     assert any(e.category == "declination-zero" for e in r.entries)
+
+
+def test_ampersand_names_escaped_once(tmp_path):
+    prj = _project([_shot("E", "S1")])
+    object.__setattr__(prj.dat_files[0].surveys[0], "team",
+                       ("A. Pitkin & C. Roberson",))
+    out = _convert(prj, tmp_path)
+    xml = _xml(out)
+    assert "<Explorer>A. Pitkin &amp; C. Roberson</Explorer>" in xml
+    assert "&amp;amp;" not in xml
+    # and it parses back to the plain name
+    back = read_tml(out)
+    sec = back.sections[0]
+    team_text = " ".join((sec.surveyors or []) + (sec.explorers or []))
+    assert "A. Pitkin & C. Roberson" in team_text
