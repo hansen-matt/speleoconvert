@@ -201,3 +201,64 @@ def test_detects_broken_depth_chain_continuity(tmp_path):
     with zipfile.ZipFile(out, "w") as z:
         z.writestr("Data.xml", xml)
     assert any("disagrees with parent" in p for p in reconcile(prj, out))
+
+
+# --- round 2: regressions found by the second review --------------------------
+
+def test_shot_with_no_inclination_at_all_converts(tmp_path):
+    # -999 INC in a file WITHOUT backsight columns: must convert (level depth),
+    # not crash the writer with a validation error
+    dat_text = (
+        "cave\r\nSURVEY NAME: A\r\nSURVEY DATE: 2 23 2024  COMMENT:\r\n"
+        "SURVEY TEAM: \r\nMatt\r\n"
+        "DECLINATION: 0.00  FORMAT: DDDDUDRLLADN\r\n\r\n"
+        "FROM TO LENGTH BEARING INC LEFT UP DOWN RIGHT FLAGS COMMENTS\r\n\r\n"
+        "A1 A2 10.00 90.00 -999.00 1.00 1.00 1.00 1.00\r\n"
+    )
+    (tmp_path / "n.dat").write_bytes(dat_text.encode("cp437"))
+    (tmp_path / "n.mak").write_bytes(b"#n.dat;\r\n")
+    assert main(["convert", str(tmp_path / "n.mak"), "-q"]) == 0
+    import zipfile
+    xml = zipfile.ZipFile(tmp_path / "n.tml").read("Data.xml").decode()
+    assert "<Inclination/>" in xml or "<Inclination></Inclination>" in xml
+
+
+def test_envelope_allows_correct_average_of_blundered_backsight(tmp_path):
+    # corrected-convention survey with one wild backsight: fore 0 / back 170
+    # averages to 85 (Compass semantics); verification must not reject it
+    rows = [
+        "A1 A2 10.00 10.00 0.00 1.00 1.00 1.00 1.00 11.00 0.00",
+        "A2 A3 10.00 50.00 0.00 1.00 1.00 1.00 1.00 49.50 0.00",
+        "A3 A4 10.00 0.00 0.00 1.00 1.00 1.00 1.00 170.00 0.00",
+    ]
+    (tmp_path / "e.dat").write_bytes(_bs_dat(rows).encode("cp437"))
+    (tmp_path / "e.mak").write_bytes(b"#e.dat;\r\n")
+    assert main(["convert", str(tmp_path / "e.mak"), "-q"]) == 0
+
+
+def test_mak_comment_inside_statement_is_parse_error(tmp_path):
+    from speleoconvert.compass.parser_mak import parse_mak
+    mak = (
+        "#t.dat,\r\n"
+        "/ fixed stations below\r\n"
+        " A1[f,933560.866,11070112.205,0.000];\r\n"
+    )
+    (tmp_path / "c.mak").write_bytes(mak.encode("cp437"))
+    with pytest.raises(ParseError) as e:
+        parse_mak(tmp_path / "c.mak")
+    assert "comment line inside" in str(e.value)
+
+
+def test_self_loop_180_corruption_detected(tmp_path):
+    import re
+    import zipfile
+    prj = _project([_shot("E", "S1"), _shot("S1", "S1", bearing=45.0)])
+    d = map_project(prj, report=ConversionReport("s", "o"))
+    out = tmp_path / "o.tml"
+    write_tml(d, out)
+    with zipfile.ZipFile(out) as z:
+        xml = z.read("Data.xml").decode()
+    xml = re.sub(r"<Azimut>45\.0</Azimut>", "<Azimut>225.0</Azimut>", xml)
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("Data.xml", xml)
+    assert any("azimuth" in p for p in reconcile(prj, out))

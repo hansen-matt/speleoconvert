@@ -1,8 +1,9 @@
 """Randomized end-to-end integrity: generate synthetic Compass projects
 (genuine .DAT/.MAK bytes with loops, branches, shuffled shot order forcing
-reversals, backsight columns, sentinels, flags, ampersands, edge-case
-bearings), run the full pipeline, and require PERFECT shot-by-shot
-reconciliation of the written TML against the parsed source."""
+reversals, backsight columns in BOTH conventions, -999 missing-foresight
+rows, -999.25 missing-backsight sentinels, secondary GPS anchors, flags,
+ampersands, edge-case bearings), run the full pipeline, and require PERFECT
+shot-by-shot reconciliation of the written TML against the parsed source."""
 import random
 from pathlib import Path
 
@@ -25,6 +26,7 @@ def _fmt(v):
 
 def _gen_survey(rng: random.Random, idx: int, stations: list[str]) -> str:
     has_backsights = rng.random() < 0.4
+    corrected_convention = rng.random() < 0.4  # backsights pre-flipped
     n_shots = rng.randint(3, 12)
     start = rng.choice(stations) if stations and rng.random() < 0.7 else f"S{idx}_0"
     local = [start]
@@ -47,9 +49,23 @@ def _gen_survey(rng: random.Random, idx: int, stations: list[str]) -> str:
         row = (f"{frm:>20s} {to:>20s} {_fmt(length)} {_fmt(bearing)} {_fmt(inc)}"
                f" {_fmt(lrud[0])} {_fmt(lrud[1])} {_fmt(lrud[2])} {_fmt(lrud[3])}")
         if has_backsights:
-            if rng.random() < 0.8:
-                azm2 = round((bearing + 180 + rng.uniform(-1.5, 1.5)) % 360, 2)
-                inc2 = round(-inc + rng.uniform(-1.0, 1.0), 2)
+            r2 = rng.random()
+            if r2 < 0.65:
+                if corrected_convention:
+                    azm2 = round((bearing + rng.uniform(-1.5, 1.5)) % 360, 2)
+                    inc2 = round(inc + rng.uniform(-1.0, 1.0), 2)
+                else:
+                    azm2 = round((bearing + 180 + rng.uniform(-1.5, 1.5)) % 360, 2)
+                    inc2 = round(-inc + rng.uniform(-1.0, 1.0), 2)
+            elif r2 < 0.80:
+                # missing FORESIGHT: backsight-only shot (-999 sentinels)
+                back = (round(bearing, 2) if corrected_convention
+                        else round((bearing + 180) % 360, 2))
+                row = (f"{frm:>20s} {to:>20s} {_fmt(length)} {_fmt(-999.0)}"
+                       f" {_fmt(-999.0)}"
+                       f" {_fmt(lrud[0])} {_fmt(lrud[1])} {_fmt(lrud[2])}"
+                       f" {_fmt(lrud[3])}")
+                azm2, inc2 = back, round(-inc if not corrected_convention else inc, 2)
             else:
                 azm2 = inc2 = -999.25
             row += f" {_fmt(azm2)} {_fmt(inc2)}"
@@ -86,9 +102,14 @@ def _gen_project(rng: random.Random, tmp_path: Path) -> Path:
     surveys = [_gen_survey(rng, i, stations) for i in range(rng.randint(2, 6))]
     (tmp_path / "fuzz.dat").write_bytes("\x0c".join(surveys).encode("cp437"))
     anchor = stations[0]
+    entries = [f" {anchor}[f,933560.866,11070112.205,0.000]"]
+    if len(stations) > 3 and rng.random() < 0.7:
+        # secondary GPS anchor inside the (usually connected) network
+        second = rng.choice(stations[1:])
+        entries.append(f" {second}[f,933760.866,11070312.205,0.000]")
     mak = (
         "@284551.100,3373992.300,0.000,17,-1.140;\r\n&WGS 1984;\r\n$17;\r\n"
-        f"#fuzz.dat,\r\n {anchor}[f,933560.866,11070112.205,0.000];\r\n"
+        "#fuzz.dat,\r\n" + ",\r\n".join(entries) + ";\r\n"
     )
     (tmp_path / "fuzz.mak").write_bytes(mak.encode("cp437"))
     return tmp_path / "fuzz.mak"

@@ -62,7 +62,12 @@ def parse_mak(path: str | Path) -> CompassProject:
     buf, buf_line = "", 0
     for line_no, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
-        if not buf and stripped.startswith("/"):
+        if stripped.startswith("/"):
+            if buf:
+                raise ParseError(
+                    str(path), line_no,
+                    "comment line inside an unterminated statement (would be "
+                    f"swallowed into {buf[:40]!r})")
             comments.append(stripped)
             continue
         if not stripped and not buf:
