@@ -26,6 +26,16 @@ def _flatten_explorer(match: re.Match) -> str:
     return f"<Explorer>{names}</Explorer>"
 
 
+# The library also writes XMLExplorer/XMLSurveyor tags on every shot. Real
+# Ariane files don't contain them, and (at least some) Ariane versions render
+# them into the Explorer column as literal '<Explorer></Explorer><Surveyor>..'
+# text. The plain Explorer field already carries the names — drop the tags.
+_XML_TEAM_TAGS_RE = re.compile(
+    r"<XMLExplorer>.*?</XMLExplorer>|<XMLExplorer/>"
+    r"|<XMLSurveyor>.*?</XMLSurveyor>|<XMLSurveyor/>"
+)
+
+
 def write_tml(survey_dict: dict, out_path: Path) -> None:
     out_path = Path(out_path)
     with UniqueValueGenerator.activate_uniqueness():
@@ -35,6 +45,7 @@ def write_tml(survey_dict: dict, out_path: Path) -> None:
     with zipfile.ZipFile(out_path) as z:
         xml = z.read("Data.xml").decode()
     flattened = _EXPLORER_RE.sub(_flatten_explorer, xml)
+    flattened = _XML_TEAM_TAGS_RE.sub("", flattened)
     if flattened != xml:
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
             z.writestr("Data.xml", flattened)
